@@ -2,11 +2,6 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
-interface HelperCategory {
-  id: string;
-  name: string;
-}
-
 export interface DouyinRoomData {
   id: string;
   douyinId: string;
@@ -22,12 +17,13 @@ export interface DouyinRoomData {
   hlsStreamUrls: Record<string, string>;
 }
 
-interface HelperCategoriesResponse {
-  categories: HelperCategory[];
-}
-
-interface HelperRoomsResponse {
+export interface DouyinListResult {
   rooms: DouyinRoomData[];
+  categoryCount: number;
+  successfulCategories: number;
+  failedCategories?: Array<{ id: string; name: string; error: string }>;
+  partial: boolean;
+  source: string;
 }
 
 interface ProcessResult {
@@ -98,42 +94,16 @@ function runProcess(
 export class DouyinAdapter {
   private helperPath: string | null = null;
   private helperBuild: Promise<string> | null = null;
-  private categoriesCache: { expiresAt: number; value: HelperCategory[] } | null = null;
 
-  async listRooms(): Promise<{ rooms: DouyinRoomData[]; category: HelperCategory }> {
-    const categories = await this.getCategories();
-    const category = this.pickCategory(categories);
-    const result = await this.invoke<HelperRoomsResponse>(["rooms", "--category", category.id]);
-
-    return { rooms: result.rooms, category };
+  async listRooms(): Promise<DouyinListResult> {
+    return this.invoke<DouyinListResult>(["rooms-all", "--workers", "4"], 180_000);
   }
 
-  private async getCategories(): Promise<HelperCategory[]> {
-    if (this.categoriesCache && this.categoriesCache.expiresAt > Date.now()) {
-      return this.categoriesCache.value;
-    }
-
-    const result = await this.invoke<HelperCategoriesResponse>(["categories"]);
-    if (result.categories.length === 0) {
-      throw new Error("Douyin returned no live categories");
-    }
-
-    this.categoriesCache = {
-      expiresAt: Date.now() + 10 * 60 * 1000,
-      value: result.categories,
-    };
-    return result.categories;
-  }
-
-  private pickCategory(categories: HelperCategory[]): HelperCategory {
-    return categories.find((category) => category.name.includes("游戏")) ?? categories[0];
-  }
-
-  private async invoke<T>(args: string[]): Promise<T> {
+  private async invoke<T>(args: string[], timeoutMs = 30_000): Promise<T> {
     const helperPath = await this.ensureHelper();
     const result = await runProcess(helperPath, args, {
       cwd: helperDirectory,
-      timeoutMs: 30_000,
+      timeoutMs,
     });
 
     try {

@@ -2,13 +2,13 @@
 
 ## DYLIVE
 
-LiveHub uses the Go package `github.com/caiguanhao/dylive` for the first Douyin integration.
+LiveHub's Douyin parser flow and selected data-model ideas were adapted from the Go project `github.com/caiguanhao/dylive`.
 
 - Source: https://github.com/caiguanhao/dylive
 - License: MIT
 - Copyright: 2022 caiguanhao
 
-The package is used as an external dependency by `native/douyin-helper`.
+The current `native/douyin-helper` does not include DYLIVE as a runtime dependency. This notice remains because the parser flow was adapted from that project.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 

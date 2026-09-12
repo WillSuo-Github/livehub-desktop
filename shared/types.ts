@@ -26,7 +26,11 @@ export interface LiveRoom {
 export interface DouyinIntegrationStatus {
   state: "checking" | "connected" | "error";
   message: string;
-  categoryName?: string;
+  roomCount?: number;
+  categoryCount?: number;
+  successfulCategories?: number;
+  failedCategoryCount?: number;
+  partial?: boolean;
 }
 
 export interface AppInfo {

@@ -12,6 +12,7 @@ const platforms: PlatformId[] = ["douyin", "douyu", "huya", "bilibili"];
 
 export class PlatformService {
   private readonly douyin = new DouyinAdapter();
+  private lastDouyinRooms: LiveRoom[] = [];
   private douyinStatus: DouyinIntegrationStatus = {
     state: "checking",
     message: "正在连接抖音…",
@@ -56,19 +57,30 @@ export class PlatformService {
   private async loadDouyinRooms(): Promise<LiveRoom[]> {
     try {
       const result = await this.douyin.listRooms();
+      const failedCategoryCount = result.failedCategories?.length ?? 0;
+      const coverage = result.partial
+        ? `，${failedCategoryCount} 个分类失败`
+        : "，分类全部成功";
       this.douyinStatus = {
         state: "connected",
-        message: `已获取 ${result.rooms.length} 个真实房间`,
-        categoryName: result.category.name,
+        message: `已发现 ${result.rooms.length} 个真实房间${coverage}`,
+        roomCount: result.rooms.length,
+        categoryCount: result.categoryCount,
+        successfulCategories: result.successfulCategories,
+        failedCategoryCount,
+        partial: result.partial,
       };
-      return result.rooms.map(mapDouyinRoom);
+      this.lastDouyinRooms = result.rooms.map(mapDouyinRoom);
+      return this.lastDouyinRooms;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.douyinStatus = {
         state: "error",
-        message: message.slice(0, 140),
+        message: this.lastDouyinRooms.length > 0
+          ? `本次刷新失败，继续使用上次 ${this.lastDouyinRooms.length} 个房间：${message.slice(0, 96)}`
+          : message.slice(0, 140),
       };
-      return [];
+      return this.lastDouyinRooms;
     }
   }
 }

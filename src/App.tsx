@@ -28,6 +28,7 @@ const formatViewers = (viewers: number): string => {
 };
 
 const displayViewers = (room: LiveRoom): string => room.viewerLabel ?? formatViewers(room.viewers);
+const roomPageSize = 120;
 
 function App() {
   const [rooms, setRooms] = useState<LiveRoom[]>([]);
@@ -47,6 +48,7 @@ function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [visibleRoomCount, setVisibleRoomCount] = useState(roomPageSize);
 
   const refreshRooms = async (announce = false): Promise<void> => {
     setLoading(true);
@@ -77,6 +79,10 @@ function App() {
   }, [favorites]);
 
   useEffect(() => {
+    setVisibleRoomCount(roomPageSize);
+  }, [activePlatform, activeView, query]);
+
+  useEffect(() => {
     if (!toast) {
       return;
     }
@@ -101,10 +107,13 @@ function App() {
     });
   }, [activePlatform, activeView, favorites, query, rooms]);
 
+  const visibleRooms = filteredRooms.slice(0, visibleRoomCount);
+
   const totalViewers = rooms.reduce((total, room) => total + room.viewers, 0);
   const liveCount = rooms.filter((room) => room.status === "live").length;
   const douyinConnected = appInfo?.douyin.state === "connected";
   const douyinError = appInfo?.douyin.state === "error";
+  const douyinPartial = appInfo?.douyin.partial === true;
 
   const toggleFavorite = (roomId: string): void => {
     setFavorites((current) =>
@@ -199,7 +208,7 @@ function App() {
           <div className="connection-card">
             <span className={`connection-pulse ${douyinError ? "error" : ""}`} />
             <div>
-              <strong>{douyinConnected ? "抖音已连接" : douyinError ? "抖音连接失败" : "正在连接抖音"}</strong>
+              <strong>{douyinConnected ? douyinPartial ? "抖音已连接 · 部分失败" : "抖音已连接" : douyinError ? "抖音连接失败" : "正在连接抖音"}</strong>
               <span>{appInfo?.douyin.message ?? "准备解析器…"}</span>
             </div>
             <span className="connection-arrow">›</span>
@@ -359,7 +368,7 @@ function App() {
                       <span>换个平台或搜索词试试看吧。</span>
                     </div>
                   )}
-                  {!loading && !error && filteredRooms.map((room) => {
+                  {!loading && !error && visibleRooms.map((room) => {
                     const meta = platformMeta[room.platform];
                     const isFavorite = favorites.includes(room.id);
 
@@ -415,6 +424,14 @@ function App() {
                       </article>
                     );
                   })}
+                  {!loading && !error && visibleRooms.length < filteredRooms.length && (
+                    <button
+                      className="load-more-button"
+                      onClick={() => setVisibleRoomCount((count) => count + roomPageSize)}
+                    >
+                      加载更多 · 还剩 {filteredRooms.length - visibleRooms.length} 个
+                    </button>
+                  )}
                 </div>
 
                 <aside className="room-detail-panel">
