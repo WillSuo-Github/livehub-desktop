@@ -27,6 +27,8 @@ const formatViewers = (viewers: number): string => {
   return viewers.toLocaleString("zh-CN");
 };
 
+const displayViewers = (room: LiveRoom): string => room.viewerLabel ?? formatViewers(room.viewers);
+
 function App() {
   const [rooms, setRooms] = useState<LiveRoom[]>([]);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
@@ -46,33 +48,28 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const refreshRooms = async (announce = false): Promise<void> => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const nextRooms = await window.livehub.getRooms("all");
+      const nextAppInfo = await window.livehub.getAppInfo();
+      setRooms(nextRooms);
+      setAppInfo(nextAppInfo);
+      setSelectedRoom((current) => nextRooms.find((room) => room.id === current?.id) ?? nextRooms[0] ?? null);
+      if (announce) {
+        setToast("已刷新抖音实时列表，其他平台仍为演示数据。");
+      }
+    } catch {
+      setError("直播列表加载失败，请重启应用试试。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    let cancelled = false;
-
-    Promise.all([window.livehub.getRooms("all"), window.livehub.getAppInfo()])
-      .then(([nextRooms, nextAppInfo]) => {
-        if (cancelled) {
-          return;
-        }
-
-        setRooms(nextRooms);
-        setAppInfo(nextAppInfo);
-        setSelectedRoom(nextRooms[0] ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError("直播列表加载失败，请重启应用试试。");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
+    void refreshRooms();
   }, []);
 
   useEffect(() => {
@@ -106,6 +103,8 @@ function App() {
 
   const totalViewers = rooms.reduce((total, room) => total + room.viewers, 0);
   const liveCount = rooms.filter((room) => room.status === "live").length;
+  const douyinConnected = appInfo?.douyin.state === "connected";
+  const douyinError = appInfo?.douyin.state === "error";
 
   const toggleFavorite = (roomId: string): void => {
     setFavorites((current) =>
@@ -198,10 +197,10 @@ function App() {
 
         <div className="sidebar-footer">
           <div className="connection-card">
-            <span className="connection-pulse" />
+            <span className={`connection-pulse ${douyinError ? "error" : ""}`} />
             <div>
-              <strong>演示模式</strong>
-              <span>解析器待接入</span>
+              <strong>{douyinConnected ? "抖音已连接" : douyinError ? "抖音连接失败" : "正在连接抖音"}</strong>
+              <span>{appInfo?.douyin.message ?? "准备解析器…"}</span>
             </div>
             <span className="connection-arrow">›</span>
           </div>
@@ -278,10 +277,10 @@ function App() {
                 <h1>今天看点什么？</h1>
                 <p>把分散在不同平台的直播，收进一个安静好用的桌面工作台。</p>
                 <div className="hero-actions">
-                  <button className="primary-button" onClick={() => setToast("刷新接口会在解析器接入后启用。")}> 
+                  <button className="primary-button" onClick={() => void refreshRooms(true)} disabled={loading}>
                     <span>↻</span> 刷新列表
                   </button>
-                  <span className="demo-note"><span className="demo-dot" /> 当前为演示数据</span>
+                  <span className="demo-note"><span className="demo-dot" /> {douyinConnected ? "抖音实时数据 · 其他平台为演示数据" : "当前为演示/待连接数据"}</span>
                 </div>
               </div>
               <div className="hero-orbit" aria-hidden="true">
@@ -315,9 +314,9 @@ function App() {
                 <span className="stat-icon blue">◌</span>
                 <div>
                   <span>已连接平台</span>
-                  <strong>4</strong>
+                  <strong>{douyinConnected ? 1 : 0}</strong>
                 </div>
-                <small>全部就绪</small>
+                <small>{douyinConnected ? "抖音实时" : "连接中"}</small>
               </div>
             </section>
 
@@ -394,7 +393,7 @@ function App() {
                             {meta.short}
                           </span>
                           <div className="cover-bottomline">
-                            <span>● {formatViewers(room.viewers)} 人观看</span>
+                            <span>● {displayViewers(room)} 人观看</span>
                             <span>{room.category}</span>
                           </div>
                         </div>
@@ -444,14 +443,14 @@ function App() {
                         </div>
                         <div className="detail-anchor"><span className="anchor-avatar large">{selectedRoom.anchor.slice(0, 1)}</span><span>{selectedRoom.anchor}</span></div>
                         <div className="detail-stats">
-                          <div><span>观看人数</span><strong>{formatViewers(selectedRoom.viewers)}</strong></div>
+                          <div><span>观看人数</span><strong>{displayViewers(selectedRoom)}</strong></div>
                           <div><span>分类</span><strong>{selectedRoom.category}</strong></div>
                         </div>
                         <button className="play-button" onClick={() => handlePlay(selectedRoom)} disabled={playingId === selectedRoom.id}>
                           <span>{playingId === selectedRoom.id ? "…" : "▶"}</span>
                           {playingId === selectedRoom.id ? "准备中" : "打开播放器"}
                         </button>
-                        <p className="detail-hint">播放引擎和平台解析器正在搭建中，第一版会先接入 Streamlink 兼容层。</p>
+                        <p className="detail-hint">{selectedRoom.demo ? "这是演示房间。真实平台接入后会在这里显示播放状态。" : "抖音实时房间已接入，播放器桥接将在下一步接上。"}</p>
                       </div>
                     </>
                   ) : (

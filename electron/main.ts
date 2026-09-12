@@ -14,9 +14,7 @@ function registerIpcHandlers(): void {
   );
 
   ipcMain.handle("app:info", () => ({
-    version: app.getVersion(),
-    demoMode: true,
-    platforms: service.getPlatforms(),
+    ...service.getAppInfo(app.getVersion()),
   }));
 
   ipcMain.handle("player:open", async (_event, room: LiveRoom) => {
