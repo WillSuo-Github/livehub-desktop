@@ -15,3 +15,11 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## Public API references
+
+The Douyu, Huya, and Bilibili adapters use public HTTP endpoints and category/pagination formats. LiveHub does not bundle or copy source code from these references:
+
+- Douyu API reference: https://github.com/birjemin/douyuapi
+- Huya public list endpoint notes: https://cloud.tencent.com/developer/article/1856430
+- Bilibili live area API reference: https://github.com/MayIHaveK/bili-apis/blob/master/docs/live/live_area.md

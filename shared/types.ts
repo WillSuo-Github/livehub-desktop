@@ -23,7 +23,7 @@ export interface LiveRoom {
   url?: string;
 }
 
-export interface DouyinIntegrationStatus {
+export interface PlatformIntegrationStatus {
   state: "checking" | "connected" | "error";
   message: string;
   roomCount?: number;
@@ -33,11 +33,16 @@ export interface DouyinIntegrationStatus {
   partial?: boolean;
 }
 
+export type DouyinIntegrationStatus = PlatformIntegrationStatus;
+
 export interface AppInfo {
   version: string;
   demoMode: boolean;
   platforms: PlatformId[];
-  douyin: DouyinIntegrationStatus;
+  douyin: PlatformIntegrationStatus;
+  douyu: PlatformIntegrationStatus;
+  huya: PlatformIntegrationStatus;
+  bilibili: PlatformIntegrationStatus;
 }
 
 export interface PlayerResult {

@@ -61,7 +61,7 @@ function App() {
       setAppInfo(nextAppInfo);
       setSelectedRoom((current) => nextRooms.find((room) => room.id === current?.id) ?? nextRooms[0] ?? null);
       if (announce) {
-        setToast("已刷新抖音实时列表，其他平台仍为演示数据。");
+        setToast("已刷新四个平台的实时列表。");
       }
     } catch {
       setError("直播列表加载失败，请重启应用试试。");
@@ -111,9 +111,14 @@ function App() {
 
   const totalViewers = rooms.reduce((total, room) => total + room.viewers, 0);
   const liveCount = rooms.filter((room) => room.status === "live").length;
-  const douyinConnected = appInfo?.douyin.state === "connected";
-  const douyinError = appInfo?.douyin.state === "error";
-  const douyinPartial = appInfo?.douyin.partial === true;
+  const integrationStatuses = appInfo?.platforms.map((platform) => appInfo[platform]) ?? [];
+  const connectedPlatformCount = integrationStatuses.filter((status) => status.state === "connected").length;
+  const hasPlatformIssue = integrationStatuses.some((status) => status.state === "error" || status.partial);
+  const allPlatformsConnected = integrationStatuses.length === Object.keys(platformMeta).length
+    && integrationStatuses.every((status) => status.state === "connected" && !status.partial);
+  const platformSummary = appInfo
+    ? appInfo.platforms.map((platform) => `${platformMeta[platform].label} ${appInfo[platform].roomCount ?? 0}`).join(" · ")
+    : "正在连接四个平台…";
 
   const toggleFavorite = (roomId: string): void => {
     setFavorites((current) =>
@@ -206,10 +211,10 @@ function App() {
 
         <div className="sidebar-footer">
           <div className="connection-card">
-            <span className={`connection-pulse ${douyinError ? "error" : ""}`} />
+            <span className={`connection-pulse ${hasPlatformIssue ? "error" : ""}`} />
             <div>
-              <strong>{douyinConnected ? douyinPartial ? "抖音已连接 · 部分失败" : "抖音已连接" : douyinError ? "抖音连接失败" : "正在连接抖音"}</strong>
-              <span>{appInfo?.douyin.message ?? "准备解析器…"}</span>
+              <strong>{allPlatformsConnected ? "四个平台已连接" : `${connectedPlatformCount}/4 个平台已连接`}</strong>
+              <span>{platformSummary}</span>
             </div>
             <span className="connection-arrow">›</span>
           </div>
@@ -265,7 +270,7 @@ function App() {
                   <strong>平台解析器</strong>
                   <span>抖音、斗鱼、虎牙、哔哩哔哩。</span>
                 </div>
-                <span className="setting-status pending">开发中</span>
+                <span className="setting-status">已接入列表</span>
               </div>
               <div className="setting-row">
                 <div>
@@ -289,7 +294,7 @@ function App() {
                   <button className="primary-button" onClick={() => void refreshRooms(true)} disabled={loading}>
                     <span>↻</span> 刷新列表
                   </button>
-                  <span className="demo-note"><span className="demo-dot" /> {douyinConnected ? "抖音实时数据 · 其他平台为演示数据" : "当前为演示/待连接数据"}</span>
+                  <span className="demo-note"><span className="demo-dot" /> {allPlatformsConnected ? "四个平台实时数据" : `${connectedPlatformCount}/4 个平台已连接 · 仅显示真实数据`}</span>
                 </div>
               </div>
               <div className="hero-orbit" aria-hidden="true">
@@ -323,9 +328,9 @@ function App() {
                 <span className="stat-icon blue">◌</span>
                 <div>
                   <span>已连接平台</span>
-                  <strong>{douyinConnected ? 1 : 0}</strong>
+                  <strong>{connectedPlatformCount}</strong>
                 </div>
-                <small>{douyinConnected ? "抖音实时" : "连接中"}</small>
+                <small>{connectedPlatformCount === 4 ? "全部实时" : "连接中"}</small>
               </div>
             </section>
 
@@ -465,9 +470,9 @@ function App() {
                         </div>
                         <button className="play-button" onClick={() => handlePlay(selectedRoom)} disabled={playingId === selectedRoom.id}>
                           <span>{playingId === selectedRoom.id ? "…" : "▶"}</span>
-                          {playingId === selectedRoom.id ? "准备中" : "打开播放器"}
+                          {playingId === selectedRoom.id ? "准备中" : "打开直播页"}
                         </button>
-                        <p className="detail-hint">{selectedRoom.demo ? "这是演示房间。真实平台接入后会在这里显示播放状态。" : "抖音实时房间已接入，播放器桥接将在下一步接上。"}</p>
+                        <p className="detail-hint">{selectedRoom.demo ? "这是演示房间。" : "点击后会打开对应平台的直播页，直连播放器桥接将在下一步接上。"}</p>
                       </div>
                     </>
                   ) : (
