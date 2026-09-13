@@ -9,6 +9,7 @@ import type {
   PlayerResult,
   PlayerState,
   RoomsLoadMode,
+  UpdateStatus,
 } from "../shared/types";
 
 const api: LiveHubApi = {
@@ -26,6 +27,14 @@ const api: LiveHubApi = {
   refreshPlayers: (): Promise<PlayerState> => ipcRenderer.invoke("players:refresh"),
   setDefaultPlayer: (playerId: string): Promise<PlayerState> =>
     ipcRenderer.invoke("players:default:set", playerId),
+  getUpdateStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke("updates:status"),
+  onUpdateStatus: (listener: (status: UpdateStatus) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: UpdateStatus) => listener(status);
+    ipcRenderer.on("updates:status", handler);
+    return () => ipcRenderer.removeListener("updates:status", handler);
+  },
+  checkForUpdates: (): Promise<UpdateStatus> => ipcRenderer.invoke("updates:check"),
+  installUpdate: (): Promise<void> => ipcRenderer.invoke("updates:install"),
   requestPlay: (room: LiveRoom, playerId?: string): Promise<PlayerResult> =>
     ipcRenderer.invoke("player:open", room, playerId),
   openWebRoom: (room: LiveRoom): Promise<OpenWebResult> =>

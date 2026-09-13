@@ -1,13 +1,18 @@
 import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
+import { autoUpdater } from "electron-updater";
 import path from "node:path";
 import { PlayerService } from "./player-service";
 import { PlatformService } from "./platform-service";
-import type { LiveRoom, PlatformId, RoomsLoadMode } from "../shared/types";
+import type { LiveRoom, PlatformId, RoomsLoadMode, UpdateStatus } from "../shared/types";
 
 const service = new PlatformService();
 const playerService = new PlayerService();
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 let mainWindow: BrowserWindow | null = null;
+let updateStatus: UpdateStatus = {
+  state: "idle",
+  currentVersion: "",
+};
 
 function registerIpcHandlers(): void {
   ipcMain.handle(
@@ -31,6 +36,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle("players:default:set", (_event, playerId: string) =>
     playerService.setDefaultPlayer(playerId),
   );
+  ipcMain.handle("updates:status", () => getUpdateStatus());
+  ipcMain.handle("updates:check", () => checkForUpdates());
+  ipcMain.handle("updates:install", () => {
+    if (updateStatus.state === "downloaded") {
+      autoUpdater.quitAndInstall(false, true);
+    }
+  });
   ipcMain.handle("player:open", (_event, room: LiveRoom, playerId?: string) =>
     playerService.requestPlay(room, playerId),
   );
@@ -52,6 +64,89 @@ function registerIpcHandlers(): void {
       return { ok: false, message: "直播间网页打开失败。" };
     }
   });
+}
+
+function getUpdateStatus(): UpdateStatus {
+  return {
+    ...updateStatus,
+    currentVersion: app.getVersion(),
+  };
+}
+
+function publishUpdateStatus(status: Omit<UpdateStatus, "currentVersion">): void {
+  updateStatus = {
+    ...status,
+    currentVersion: app.getVersion(),
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("updates:status", updateStatus);
+  }
+}
+
+async function checkForUpdates(): Promise<UpdateStatus> {
+  if (!app.isPackaged || isDevelopment) {
+    publishUpdateStatus({
+      state: "not-available",
+      message: "开发模式不会检查更新。",
+    });
+    return getUpdateStatus();
+  }
+
+  publishUpdateStatus({ state: "checking" });
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    publishUpdateStatus({
+      state: "error",
+      message: error instanceof Error ? error.message.slice(0, 160) : "更新检查失败。",
+    });
+  }
+  return getUpdateStatus();
+}
+
+function configureAutoUpdater(): void {
+  if (!app.isPackaged || isDevelopment) {
+    return;
+  }
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowDowngrade = false;
+
+  autoUpdater.on("checking-for-update", () => {
+    publishUpdateStatus({ state: "checking" });
+  });
+  autoUpdater.on("update-available", (info) => {
+    publishUpdateStatus({ state: "available", version: info.version });
+    void autoUpdater.downloadUpdate().catch((error: unknown) => {
+      publishUpdateStatus({
+        state: "error",
+        version: info.version,
+        message: error instanceof Error ? error.message.slice(0, 160) : "更新下载失败。",
+      });
+    });
+  });
+  autoUpdater.on("download-progress", (progress) => {
+    publishUpdateStatus({
+      state: "downloading",
+      version: updateStatus.version,
+      percent: Math.round(progress.percent),
+    });
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    publishUpdateStatus({ state: "downloaded", version: info.version, percent: 100 });
+  });
+  autoUpdater.on("update-not-available", () => {
+    publishUpdateStatus({ state: "not-available" });
+  });
+  autoUpdater.on("error", (error) => {
+    publishUpdateStatus({
+      state: "error",
+      message: error.message.slice(0, 160),
+    });
+  });
+
+  setTimeout(() => void checkForUpdates(), 4000);
 }
 
 function createWindow(): void {
@@ -90,6 +185,7 @@ app.whenReady().then(() => {
   }
   registerIpcHandlers();
   createWindow();
+  configureAutoUpdater();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

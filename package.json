@@ -1,6 +1,6 @@
 {
   "name": "livehub-desktop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Cross-platform live streaming desktop client",
   "author": "WillSuo-Github",
@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
@@ -36,6 +37,12 @@
     "appId": "com.willsuo.livehub",
     "productName": "LiveHub",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "publish": {
+      "provider": "github",
+      "owner": "WillSuo-Github",
+      "repo": "livehub-desktop",
+      "releaseType": "release"
+    },
     "asar": true,
     "files": [
       "dist/**/*",

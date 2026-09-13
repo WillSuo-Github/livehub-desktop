@@ -84,6 +84,23 @@ export interface PlayerState {
   scannedAt: string;
 }
 
+export type UpdateState =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "not-available"
+  | "error";
+
+export interface UpdateStatus {
+  state: UpdateState;
+  currentVersion: string;
+  version?: string;
+  percent?: number;
+  message?: string;
+}
+
 export interface PlatformRoomsUpdate {
   platform: PlatformId;
   rooms: LiveRoom[];
@@ -99,6 +116,10 @@ export interface LiveHubApi {
   getPlayerState(): Promise<PlayerState>;
   refreshPlayers(): Promise<PlayerState>;
   setDefaultPlayer(playerId: string): Promise<PlayerState>;
+  getUpdateStatus(): Promise<UpdateStatus>;
+  onUpdateStatus(listener: (status: UpdateStatus) => void): () => void;
+  checkForUpdates(): Promise<UpdateStatus>;
+  installUpdate(): Promise<void>;
   requestPlay(room: LiveRoom, playerId?: string): Promise<PlayerResult>;
   openWebRoom(room: LiveRoom): Promise<OpenWebResult>;
 }

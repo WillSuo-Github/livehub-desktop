@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AppInfo, LiveRoom, PlatformId, PlatformRoomsUpdate, PlayerState } from "../shared/types";
+import type { AppInfo, LiveRoom, PlatformId, PlatformRoomsUpdate, PlayerState, UpdateStatus } from "../shared/types";
 
 type PlatformFilter = "all" | PlatformId;
 type ViewId = "rooms" | "favorites" | "settings";
@@ -151,6 +151,7 @@ function App() {
   const [playerState, setPlayerState] = useState<PlayerState | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [playerLoading, setPlayerLoading] = useState(true);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [sortMode, setSortMode] = useState<RoomSortMode>("online");
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -216,6 +217,30 @@ function App() {
         setPlayerLoading(false);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const unsubscribe = window.livehub.onUpdateStatus((status) => {
+      setUpdateStatus(status);
+      if (status.state === "available" && status.version) {
+        setToast(`发现新版本 ${status.version}，正在后台下载。`);
+      }
+      if (status.state === "downloaded" && status.version) {
+        setToast(`新版本 ${status.version} 已下载完成，可以重启更新。`);
+      }
+    });
+
+    void window.livehub.getUpdateStatus().then((status) => {
+      if (active) {
+        setUpdateStatus(status);
+      }
+    }).catch(() => undefined);
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -331,6 +356,22 @@ function App() {
   ).length;
   const selectedPlayer = playerState?.players.find((player) => player.id === selectedPlayerId)
     ?? playerState?.players.find((player) => player.id === playerState.defaultPlayerId);
+  const updateButtonLabel = updateStatus?.state === "downloaded"
+    ? "重启更新"
+    : updateStatus?.state === "checking"
+      ? "检查中…"
+      : updateStatus?.state === "downloading"
+        ? `下载中 ${updateStatus.percent ?? 0}%`
+        : "检查更新";
+  const updateDescription = updateStatus?.state === "downloaded" && updateStatus.version
+    ? `新版本 ${updateStatus.version} 已准备好，重启应用即可完成更新。`
+    : updateStatus?.state === "downloading"
+      ? `正在后台下载 ${updateStatus.version ?? "新版本"}，不会打断当前播放。`
+      : updateStatus?.state === "available"
+        ? `发现新版本 ${updateStatus.version ?? ""}，正在准备下载。`
+        : updateStatus?.state === "error"
+          ? "暂时无法检查更新，请确认网络后重试。"
+          : "启动后会自动检查 GitHub Release，有新版本时后台下载。";
 
   const toggleFavorite = (roomId: string): void => {
     setFavorites((current) =>
@@ -393,6 +434,28 @@ function App() {
       setToast("播放器扫描失败，请稍后重试。");
     } finally {
       setPlayerLoading(false);
+    }
+  };
+
+  const handleCheckForUpdates = async (): Promise<void> => {
+    try {
+      const status = await window.livehub.checkForUpdates();
+      setUpdateStatus(status);
+      if (status.state === "not-available") {
+        setToast("当前已经是最新版本。");
+      } else if (status.state === "error") {
+        setToast("更新检查失败，请稍后重试。");
+      }
+    } catch {
+      setToast("更新检查失败，请稍后重试。");
+    }
+  };
+
+  const handleInstallUpdate = async (): Promise<void> => {
+    try {
+      await window.livehub.installUpdate();
+    } catch {
+      setToast("更新安装失败，请重新启动应用。");
     }
   };
 
@@ -568,6 +631,25 @@ function App() {
                 </div>
                 <button className="secondary-button" onClick={() => void handleRefreshPlayers()} disabled={playerLoading}>
                   {playerLoading ? "扫描中…" : "重新扫描"}
+                </button>
+              </div>
+              <div className="setting-row">
+                <div>
+                  <strong>应用更新</strong>
+                  <span>{updateDescription}</span>
+                </div>
+                {updateStatus?.state === "downloaded" && <span className="setting-status">已下载</span>}
+                {updateStatus?.state === "error" && <span className="setting-status pending">待重试</span>}
+                <button
+                  className="secondary-button"
+                  onClick={() => updateStatus?.state === "downloaded"
+                    ? void handleInstallUpdate()
+                    : void handleCheckForUpdates()}
+                  disabled={updateStatus?.state === "checking"
+                    || updateStatus?.state === "available"
+                    || updateStatus?.state === "downloading"}
+                >
+                  {updateButtonLabel}
                 </button>
               </div>
               <div className="setting-row">

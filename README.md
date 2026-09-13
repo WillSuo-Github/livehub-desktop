@@ -6,7 +6,7 @@ The project is designed around one rule: the **Use Player** action always tries 
 
 ## Current release
 
-- Version: `0.1.1`
+- Version: `0.1.3`
 - Published build: macOS Apple Silicon (`arm64`)
 - Release page: <https://github.com/WillSuo-Github/livehub-desktop/releases/latest>
 
@@ -27,6 +27,7 @@ The source is cross-platform. Windows and Linux packages can be produced with th
 - Direct-stream resolution at play time for HLS and FLV playback URLs.
 - Explicit web-opening action for users who want to visit the room page.
 - Local media-player discovery with a persistent default player setting.
+- Background GitHub Release update checks with download-and-restart installation.
 
 ## Download and install
 
@@ -34,7 +35,7 @@ Download the latest installer from the [GitHub Releases page](https://github.com
 
 ### macOS
 
-The current published package targets Apple Silicon (`arm64`). Download the `.dmg`, drag LiveHub to Applications, and launch it from there. The package is currently unsigned, so macOS may require opening it from Finder with Control-click → **Open** the first time.
+The current published package targets Apple Silicon (`arm64`). Download the `.dmg`, drag LiveHub to Applications, and launch it from there. The package is signed with Developer ID and notarized by Apple.
 
 The `.zip` artifact is also available for users who prefer a portable application bundle.
 
@@ -51,6 +52,10 @@ The application source and packaging configuration support Windows and Linux, bu
 5. Select a room card to open its detail panel.
 6. Choose a detected player and click **Use Player** to resolve a fresh stream and launch it.
 7. Click **Use Web** only when you explicitly want to open the platform page in the system browser.
+
+### Automatic updates
+
+Packaged builds check the public GitHub Releases feed after launch. When a newer compatible release is found, LiveHub downloads it in the background without interrupting playback. The Settings view shows the download progress and provides a **Restart to update** action after the download completes. Closing the app after a downloaded update also installs it automatically.
 
 ### Player discovery
 
