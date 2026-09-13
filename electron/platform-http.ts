@@ -1,6 +1,8 @@
+export const browserUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0 Safari/537.36";
+
 const defaultHeaders = {
   Accept: "application/json, text/plain, */*",
-  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+  "User-Agent": browserUserAgent,
 };
 
 async function request(

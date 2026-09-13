@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { StreamService } from "./stream-service";
+import { browserUserAgent } from "./platform-http";
 import type { LiveRoom, PlayerInfo, PlayerResult, PlayerState } from "../shared/types";
 
 const execFileAsync = promisify(execFile);
@@ -22,12 +23,25 @@ interface PlayerDefinition {
 }
 
 interface ResolvedPlayer extends PlayerInfo {
-  launch(url: string): Promise<void>;
+  launch(url: string, options?: PlayerLaunchOptions): Promise<void>;
 }
 
 interface PlayerSettingsFile {
   defaultPlayerId?: string;
 }
+
+interface PlayerLaunchOptions {
+  userAgent?: string;
+  headers?: Record<string, string>;
+}
+
+const huyaPlayerLaunchOptions: PlayerLaunchOptions = {
+  userAgent: browserUserAgent,
+  headers: {
+    Origin: "https://www.huya.com",
+    Referer: "https://www.huya.com/",
+  },
+};
 
 export class PlayerService {
   private playersPromise: Promise<ResolvedPlayer[]> | null = null;
@@ -94,7 +108,7 @@ export class PlayerService {
     }
 
     try {
-      await player.launch(streamUrl);
+      await player.launch(streamUrl, getPlayerLaunchOptions(room));
       return {
         ok: true,
         url: streamUrl,
@@ -169,18 +183,57 @@ function createResolvedPlayer(
     name: definition.name,
     kind: "media",
     location: executable,
-    launch: (url) => definition.id === "vunio"
-      ? launchVunio(executable, url)
-      : source === "app"
+    launch: (url, options) => {
+      if (definition.id === "vunio") {
+        return launchVunio(executable, url);
+      }
+      if (definition.id === "iina") {
+        return launchIina(executable, source, url, options);
+      }
+      return source === "app"
         ? launchCommand("open", ["-a", executable, url])
-        : launchCommand(executable, [url]),
+        : launchCommand(executable, [url]);
+    },
   };
+}
+
+function launchIina(
+  executable: string,
+  source: PlayerCandidate["kind"],
+  streamUrl: string,
+  options?: PlayerLaunchOptions,
+): Promise<void> {
+  const iinaCli = source === "app"
+    ? path.join(executable, "Contents", "MacOS", "iina-cli")
+    : executable;
+
+  if (source === "app" && !existsSync(iinaCli)) {
+    return Promise.reject(new Error("IINA 应用包中没有找到 iina-cli。"));
+  }
+
+  const args = ["--no-stdin"];
+  if (options?.userAgent) {
+    args.push(`--mpv-user-agent=${options.userAgent}`);
+  }
+  const headerFields = Object.entries(options?.headers ?? {})
+    .map(([name, value]) => `${name}: ${value}`)
+    .join(",");
+  if (headerFields) {
+    args.push(`--mpv-http-header-fields=${headerFields}`);
+  }
+  args.push(streamUrl);
+
+  return launchCommand(iinaCli, args);
 }
 
 function launchVunio(appPath: string, streamUrl: string): Promise<void> {
   const handoffURL = new URL("vunio://play");
   handoffURL.searchParams.set("url", streamUrl);
   return launchCommand("open", ["-a", appPath, handoffURL.toString()]);
+}
+
+function getPlayerLaunchOptions(room: LiveRoom): PlayerLaunchOptions | undefined {
+  return room.platform === "huya" ? huyaPlayerLaunchOptions : undefined;
 }
 
 async function findExecutable(command: string): Promise<string | null> {
