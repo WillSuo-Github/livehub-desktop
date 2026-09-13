@@ -6,7 +6,13 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { StreamService } from "./stream-service";
 import { browserUserAgent } from "./platform-http";
-import type { LiveRoom, PlayerInfo, PlayerResult, PlayerState } from "../shared/types";
+import type {
+  LiveRoom,
+  PlaybackUrls,
+  PlayerInfo,
+  PlayerResult,
+  PlayerState,
+} from "../shared/types";
 
 const execFileAsync = promisify(execFile);
 const settingsFileName = "player-settings.json";
@@ -32,6 +38,11 @@ interface PlayerSettingsFile {
 
 interface PlayerLaunchOptions {
   userAgent?: string;
+  headers?: Record<string, string>;
+}
+
+interface PlayableStream {
+  url: string;
   headers?: Record<string, string>;
 }
 
@@ -90,12 +101,11 @@ export class PlayerService {
       return { ok: false, message: "没有找到可用的播放器。" };
     }
 
-    let streamUrl = getPlayableUrl(room);
+    let playback = room.playback;
     try {
-      const resolvedPlayback = await this.streamService.resolve(room);
-      streamUrl = getPlayableUrl({ ...room, playback: resolvedPlayback }) ?? streamUrl;
+      playback = await this.streamService.resolve(room);
     } catch (error) {
-      if (!streamUrl) {
+      if (!getPlayableStream(playback)) {
         return {
           ok: false,
           message: `${platformLabel(room.platform)}直连流解析失败：${shortError(error)}，未打开网页。`,
@@ -103,15 +113,16 @@ export class PlayerService {
       }
     }
 
-    if (!streamUrl) {
+    const stream = getPlayableStream(playback);
+    if (!stream) {
       return { ok: false, message: `${platformLabel(room.platform)}暂时没有可播放的直连流，未打开网页。` };
     }
 
     try {
-      await player.launch(streamUrl, getPlayerLaunchOptions(room));
+      await player.launch(stream.url, getPlayerLaunchOptions(room, stream.headers));
       return {
         ok: true,
-        url: streamUrl,
+        url: stream.url,
         message: `已使用 ${player.name} 打开直播流。`,
       };
     } catch (error) {
@@ -185,7 +196,7 @@ function createResolvedPlayer(
     location: executable,
     launch: (url, options) => {
       if (definition.id === "vunio") {
-        return launchVunio(executable, url);
+        return launchVunio(executable, url, options);
       }
       if (definition.id === "iina") {
         return launchIina(executable, source, url, options);
@@ -226,14 +237,41 @@ function launchIina(
   return launchCommand(iinaCli, args);
 }
 
-function launchVunio(appPath: string, streamUrl: string): Promise<void> {
+function launchVunio(
+  appPath: string,
+  streamUrl: string,
+  options?: PlayerLaunchOptions,
+): Promise<void> {
   const handoffURL = new URL("vunio://play");
   handoffURL.searchParams.set("url", streamUrl);
+
+  const headers = { ...(options?.headers ?? {}) };
+  if (options?.userAgent && !headers["User-Agent"]) {
+    headers["User-Agent"] = options.userAgent;
+  }
+  for (const [name, value] of Object.entries(headers)) {
+    handoffURL.searchParams.append("header", `${name}: ${value}`);
+  }
+
   return launchCommand("open", ["-a", appPath, handoffURL.toString()]);
 }
 
-function getPlayerLaunchOptions(room: LiveRoom): PlayerLaunchOptions | undefined {
-  return room.platform === "huya" ? huyaPlayerLaunchOptions : undefined;
+function getPlayerLaunchOptions(
+  room: LiveRoom,
+  playbackHeaders?: Record<string, string>,
+): PlayerLaunchOptions | undefined {
+  const baseOptions = room.platform === "huya" ? huyaPlayerLaunchOptions : undefined;
+  const headers = {
+    ...(baseOptions?.headers ?? {}),
+    ...(playbackHeaders ?? {}),
+  };
+  const userAgent = playbackHeaders?.["User-Agent"] ?? baseOptions?.userAgent;
+
+  if (!userAgent && Object.keys(headers).length === 0) {
+    return undefined;
+  }
+
+  return { userAgent, headers };
 }
 
 async function findExecutable(command: string): Promise<string | null> {
@@ -268,13 +306,14 @@ function launchCommand(command: string, args: string[]): Promise<void> {
   });
 }
 
-function getPlayableUrl(room: LiveRoom): string | null {
-  const hlsUrl = firstValue(room.playback?.hls);
+function getPlayableStream(playback?: PlaybackUrls): PlayableStream | null {
+  const hlsUrl = firstValue(playback?.hls);
   if (hlsUrl) {
-    return hlsUrl;
+    return { url: hlsUrl, headers: playback?.headers };
   }
 
-  return firstValue(room.playback?.flv) ?? null;
+  const flvUrl = firstValue(playback?.flv);
+  return flvUrl ? { url: flvUrl, headers: playback?.headers } : null;
 }
 
 function platformLabel(platform: LiveRoom["platform"]): string {

@@ -69,6 +69,7 @@ export interface OpenWebResult {
 export interface PlaybackUrls {
   flv?: Record<string, string>;
   hls?: Record<string, string>;
+  headers?: Record<string, string>;
 }
 
 export interface PlayerInfo {

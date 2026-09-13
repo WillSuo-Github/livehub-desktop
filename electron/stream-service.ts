@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
-import { fetchJson, fetchJsonPost, fetchJsonWithResponse, fetchText } from "./platform-http";
+import {
+  browserUserAgent,
+  fetchJson,
+  fetchJsonPost,
+  fetchJsonWithResponse,
+  fetchText,
+} from "./platform-http";
 import type { LiveRoom, PlaybackUrls } from "../shared/types";
 
 const douyuHeaders = {
@@ -11,6 +17,10 @@ const huyaHeaders = {
 };
 const bilibiliHeaders = {
   Referer: "https://live.bilibili.com/",
+};
+const bilibiliPlaybackHeaders = {
+  ...bilibiliHeaders,
+  "User-Agent": browserUserAgent,
 };
 const douyuDeviceId = "10000000000000000000000000001501";
 
@@ -156,6 +166,7 @@ export class StreamService {
       flv: {
         source: joinStreamUrl(playData.rtmp_url, playData.rtmp_live),
       },
+      headers: douyuHeaders,
     };
   }
 
@@ -198,7 +209,7 @@ export class StreamService {
       throw new Error("虎牙没有返回可播放的直播流");
     }
 
-    return { flv };
+    return { flv, headers: huyaHeaders };
   }
 
   private async resolveBilibili(room: LiveRoom): Promise<PlaybackUrls> {
@@ -218,6 +229,7 @@ export class StreamService {
       if (response.code === 0 && urls.length > 0) {
         return {
           flv: Object.fromEntries(urls.map((url, index) => [`source-${index + 1}`, url])),
+          headers: bilibiliPlaybackHeaders,
         };
       }
     } catch {
@@ -271,7 +283,7 @@ export class StreamService {
     if (Object.keys(hls).length === 0) {
       throw new Error("哔哩哔哩没有返回可播放的直播流");
     }
-    return { hls };
+    return { hls, headers: bilibiliPlaybackHeaders };
   }
 }
 
