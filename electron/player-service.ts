@@ -105,7 +105,7 @@ export class PlayerService {
     try {
       playback = await this.streamService.resolve(room);
     } catch (error) {
-      if (!getPlayableStream(playback)) {
+      if (!getPlayableStream(playback, player.id)) {
         return {
           ok: false,
           message: `${platformLabel(room.platform)}直连流解析失败：${shortError(error)}，未打开网页。`,
@@ -113,7 +113,7 @@ export class PlayerService {
       }
     }
 
-    const stream = getPlayableStream(playback);
+    const stream = getPlayableStream(playback, player.id);
     if (!stream) {
       return { ok: false, message: `${platformLabel(room.platform)}暂时没有可播放的直连流，未打开网页。` };
     }
@@ -306,14 +306,12 @@ function launchCommand(command: string, args: string[]): Promise<void> {
   });
 }
 
-function getPlayableStream(playback?: PlaybackUrls): PlayableStream | null {
-  const hlsUrl = firstValue(playback?.hls);
-  if (hlsUrl) {
-    return { url: hlsUrl, headers: playback?.headers };
-  }
-
-  const flvUrl = firstValue(playback?.flv);
-  return flvUrl ? { url: flvUrl, headers: playback?.headers } : null;
+function getPlayableStream(playback?: PlaybackUrls, playerId?: string): PlayableStream | null {
+  const candidateUrls = playerId === "vunio"
+    ? [firstValue(playback?.flv), firstValue(playback?.hls)]
+    : [firstValue(playback?.hls), firstValue(playback?.flv)];
+  const url = candidateUrls.find((candidate): candidate is string => Boolean(candidate));
+  return url ? { url, headers: playback?.headers } : null;
 }
 
 function platformLabel(platform: LiveRoom["platform"]): string {
