@@ -1,6 +1,14 @@
 export type PlatformId = "douyin" | "douyu" | "huya" | "bilibili";
 
+export type RoomsLoadMode = "featured" | "full";
+
+export type SyncTrigger = "startup" | "hourly" | "manual";
+
+export type PlayerKind = "media";
+
 export type RoomStatus = "live" | "offline";
+
+export type AudienceMetric = "online" | "platform-online" | "heat";
 
 export interface LiveRoom {
   id: string;
@@ -9,6 +17,7 @@ export interface LiveRoom {
   anchor: string;
   category: string;
   viewers: number;
+  audienceMetric?: AudienceMetric;
   tags: string[];
   cover: string;
   status: RoomStatus;
@@ -16,10 +25,7 @@ export interface LiveRoom {
   demo?: boolean;
   viewerLabel?: string;
   webUrl?: string;
-  playback?: {
-    flv?: Record<string, string>;
-    hls?: Record<string, string>;
-  };
+  playback?: PlaybackUrls;
   url?: string;
 }
 
@@ -31,6 +37,10 @@ export interface PlatformIntegrationStatus {
   successfulCategories?: number;
   failedCategoryCount?: number;
   partial?: boolean;
+  phase?: "featured" | "syncing" | "ready" | "error";
+  progress?: number;
+  lastUpdatedAt?: string;
+  source?: string;
 }
 
 export type DouyinIntegrationStatus = PlatformIntegrationStatus;
@@ -51,8 +61,44 @@ export interface PlayerResult {
   url?: string;
 }
 
+export interface OpenWebResult {
+  ok: boolean;
+  message: string;
+}
+
+export interface PlaybackUrls {
+  flv?: Record<string, string>;
+  hls?: Record<string, string>;
+}
+
+export interface PlayerInfo {
+  id: string;
+  name: string;
+  kind: PlayerKind;
+  location?: string;
+}
+
+export interface PlayerState {
+  players: PlayerInfo[];
+  defaultPlayerId: string;
+  scannedAt: string;
+}
+
+export interface PlatformRoomsUpdate {
+  platform: PlatformId;
+  rooms: LiveRoom[];
+  status: PlatformIntegrationStatus;
+  mode: RoomsLoadMode;
+  trigger: SyncTrigger;
+}
+
 export interface LiveHubApi {
-  getRooms(platform?: PlatformId | "all"): Promise<LiveRoom[]>;
+  getRooms(platform?: PlatformId | "all", mode?: RoomsLoadMode): Promise<LiveRoom[]>;
+  onRoomsUpdate(listener: (update: PlatformRoomsUpdate) => void): () => void;
   getAppInfo(): Promise<AppInfo>;
-  requestPlay(room: LiveRoom): Promise<PlayerResult>;
+  getPlayerState(): Promise<PlayerState>;
+  refreshPlayers(): Promise<PlayerState>;
+  setDefaultPlayer(playerId: string): Promise<PlayerState>;
+  requestPlay(room: LiveRoom, playerId?: string): Promise<PlayerResult>;
+  openWebRoom(room: LiveRoom): Promise<OpenWebResult>;
 }

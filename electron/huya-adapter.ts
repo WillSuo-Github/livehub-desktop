@@ -12,6 +12,7 @@ const requestHeaders = {
 };
 const pageSize = 120;
 const maxPagesPerCategory = 200;
+const featuredCategoryLimit = 8;
 
 interface HuyaRoom {
   gameFullName?: string;
@@ -51,6 +52,21 @@ interface CategoryResult {
 }
 
 export class HuyaAdapter {
+  async listFeaturedRooms(): Promise<PlatformListResult> {
+    const categories = (await this.listCategories()).slice(0, featuredCategoryLimit);
+    const results = await mapWithConcurrency(categories, 2, (category) => this.listCategoryRooms(category, 1));
+    const failedCategories = results.flatMap((result) => result.failure ? [result.failure] : []);
+
+    return {
+      rooms: dedupeRooms(results.flatMap((result) => result.rooms)),
+      categoryCount: categories.length,
+      successfulCategories: categories.length - failedCategories.length,
+      failedCategories,
+      partial: failedCategories.length > 0,
+      source: "huya-featured-games",
+    };
+  }
+
   async listRooms(): Promise<PlatformListResult> {
     const categories = await this.listCategories();
     const results = await mapWithConcurrency(categories, 2, (category) => this.listCategoryRooms(category));
@@ -85,12 +101,15 @@ export class HuyaAdapter {
     return Array.from(ids, (id) => ({ id, name: `分类 ${id}` }));
   }
 
-  private async listCategoryRooms(category: HuyaCategory): Promise<CategoryResult> {
+  private async listCategoryRooms(
+    category: HuyaCategory,
+    pageLimit = maxPagesPerCategory,
+  ): Promise<CategoryResult> {
     try {
       const rooms: PlatformRoomData[] = [];
       let totalPage = 1;
 
-      for (let page = 1; page <= Math.min(totalPage, maxPagesPerCategory); page += 1) {
+      for (let page = 1; page <= Math.min(totalPage, pageLimit); page += 1) {
         const params = new URLSearchParams({
           m: "LiveList",
           do: "getLiveListByPage",

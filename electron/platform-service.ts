@@ -2,16 +2,29 @@ import { BilibiliAdapter } from "./bilibili-adapter";
 import { DouyinAdapter, type DouyinRoomData } from "./douyin-adapter";
 import { DouyuAdapter } from "./douyu-adapter";
 import { HuyaAdapter } from "./huya-adapter";
+import { mapWithConcurrency } from "./platform-http";
 import type { PlatformRoomData } from "./platform-adapter";
 import type {
   AppInfo,
   LiveRoom,
   PlatformId,
   PlatformIntegrationStatus,
-  PlayerResult,
+  PlatformRoomsUpdate,
+  RoomsLoadMode,
+  SyncTrigger,
 } from "../shared/types";
 
 const platforms: PlatformId[] = ["douyin", "douyu", "huya", "bilibili"];
+const platformLabels: Record<PlatformId, string> = {
+  douyin: "抖音",
+  douyu: "斗鱼",
+  huya: "虎牙",
+  bilibili: "哔哩哔哩",
+};
+const featuredRefreshIntervalMs = 5 * 60 * 1000;
+const fullRefreshIntervalMs = 60 * 60 * 1000;
+
+type RoomsUpdateListener = (update: PlatformRoomsUpdate) => void;
 
 export class PlatformService {
   private readonly adapters = {
@@ -35,52 +48,130 @@ export class PlatformService {
     bilibili: checkingStatus("正在连接哔哩哔哩…"),
   };
 
-  private allRoomsPromise: Promise<LiveRoom[]> | null = null;
+  private featuredRoomsPromise: Promise<LiveRoom[]> | null = null;
+  private fullSyncPromise: Promise<LiveRoom[]> | null = null;
+  private featuredTimer: NodeJS.Timeout | null = null;
+  private hourlyTimer: NodeJS.Timeout | null = null;
+  private backgroundSyncStarted = false;
+  private readonly updateListeners = new Set<RoomsUpdateListener>();
 
-  async listRooms(platform: PlatformId | "all" = "all"): Promise<LiveRoom[]> {
-    if (platform === "all") {
-      let refreshPromise = this.allRoomsPromise;
-      if (!refreshPromise) {
-        refreshPromise = this.loadAllRooms();
-        this.allRoomsPromise = refreshPromise;
-      }
+  async listRooms(
+    platform: PlatformId | "all" = "all",
+    mode: RoomsLoadMode = "featured",
+  ): Promise<LiveRoom[]> {
+    const trigger: SyncTrigger = this.backgroundSyncStarted ? "manual" : "startup";
 
-      try {
-        return await refreshPromise;
-      } finally {
-        if (this.allRoomsPromise === refreshPromise) {
-          this.allRoomsPromise = null;
-        }
-      }
+    if (mode === "full") {
+      return this.startFullSync(trigger);
     }
 
-    return this.loadRooms(platform);
+    const rooms = platform === "all"
+      ? await this.loadFeaturedRooms(trigger)
+      : await this.loadRooms(platform, "featured", trigger);
+    this.ensureBackgroundSync();
+    return rooms;
   }
 
-  private async loadAllRooms(): Promise<LiveRoom[]> {
-    const roomGroups = await Promise.all(platforms.map((platformId) => this.loadRooms(platformId)));
-    for (const [index, platformId] of platforms.entries()) {
-      const status = this.statuses[platformId];
-      if (status.state === "error" || (status.partial && (status.roomCount ?? 0) === 0)) {
-        roomGroups[index] = await this.loadRooms(platformId);
+  subscribe(listener: RoomsUpdateListener): () => void {
+    this.updateListeners.add(listener);
+    return () => this.updateListeners.delete(listener);
+  }
+
+  dispose(): void {
+    if (this.featuredTimer) {
+      clearTimeout(this.featuredTimer);
+      this.featuredTimer = null;
+    }
+    if (this.hourlyTimer) {
+      clearTimeout(this.hourlyTimer);
+      this.hourlyTimer = null;
+    }
+    this.updateListeners.clear();
+  }
+
+  private async loadFeaturedRooms(trigger: SyncTrigger): Promise<LiveRoom[]> {
+    let refreshPromise = this.featuredRoomsPromise;
+    if (!refreshPromise) {
+      refreshPromise = Promise.all(
+        platforms.map((platformId) => this.loadRooms(platformId, "featured", trigger)),
+      ).then((roomGroups) => roomGroups.flat());
+      this.featuredRoomsPromise = refreshPromise;
+    }
+
+    try {
+      return await refreshPromise;
+    } finally {
+      if (this.featuredRoomsPromise === refreshPromise) {
+        this.featuredRoomsPromise = null;
       }
     }
+  }
+
+  private startFullSync(trigger: SyncTrigger): Promise<LiveRoom[]> {
+    let refreshPromise = this.fullSyncPromise;
+    if (!refreshPromise) {
+      const featuredPromise = this.featuredRoomsPromise?.catch(() => []) ?? Promise.resolve([]);
+      refreshPromise = featuredPromise.then(() => this.loadAllRooms(trigger));
+      this.fullSyncPromise = refreshPromise;
+    }
+
+    return refreshPromise.finally(() => {
+      if (this.fullSyncPromise === refreshPromise) {
+        this.fullSyncPromise = null;
+      }
+    });
+  }
+
+  private ensureBackgroundSync(): void {
+    if (this.backgroundSyncStarted) {
+      return;
+    }
+
+    this.backgroundSyncStarted = true;
+    this.scheduleFeaturedSync();
+    void this.startFullSync("startup")
+      .catch(() => undefined)
+      .finally(() => this.scheduleHourlySync());
+  }
+
+  private scheduleFeaturedSync(): void {
+    if (this.featuredTimer) {
+      clearTimeout(this.featuredTimer);
+    }
+
+    this.featuredTimer = setTimeout(() => {
+      this.featuredTimer = null;
+      if (this.fullSyncPromise) {
+        this.scheduleFeaturedSync();
+        return;
+      }
+
+      void this.loadFeaturedRooms("hourly")
+        .catch(() => undefined)
+        .finally(() => this.scheduleFeaturedSync());
+    }, featuredRefreshIntervalMs);
+  }
+
+  private scheduleHourlySync(): void {
+    if (this.hourlyTimer) {
+      clearTimeout(this.hourlyTimer);
+    }
+
+    this.hourlyTimer = setTimeout(() => {
+      this.hourlyTimer = null;
+      void this.startFullSync("hourly")
+        .catch(() => undefined)
+        .finally(() => this.scheduleHourlySync());
+    }, fullRefreshIntervalMs);
+  }
+
+  private async loadAllRooms(trigger: SyncTrigger): Promise<LiveRoom[]> {
+    const roomGroups = await mapWithConcurrency(
+      platforms,
+      2,
+      (platformId) => this.loadRooms(platformId, "full", trigger),
+    );
     return roomGroups.flat();
-  }
-
-  async requestPlay(room: LiveRoom): Promise<PlayerResult> {
-    if (!room.webUrl) {
-      return {
-        ok: false,
-        message: "这个房间暂时没有可打开的直播页。",
-      };
-    }
-
-    return {
-      ok: true,
-      url: room.webUrl,
-      message: "正在打开平台直播页，直播流播放器桥接后续接入。",
-    };
   }
 
   getAppInfo(version: string): AppInfo {
@@ -95,11 +186,32 @@ export class PlatformService {
     };
   }
 
-  private async loadRooms(platform: PlatformId): Promise<LiveRoom[]> {
+  private async loadRooms(
+    platform: PlatformId,
+    mode: RoomsLoadMode,
+    trigger: SyncTrigger,
+  ): Promise<LiveRoom[]> {
+    const currentRooms = this.lastRooms[platform];
+    this.statuses[platform] = {
+      ...this.statuses[platform],
+      state: currentRooms.length > 0 ? "connected" : "checking",
+      message: mode === "featured"
+        ? `正在获取${platformLabels[platform]}热门房间…`
+        : `正在后台同步${platformLabels[platform]}完整列表…`,
+      roomCount: currentRooms.length || undefined,
+      phase: mode === "featured" ? "featured" : "syncing",
+      progress: mode === "featured" ? undefined : 0,
+    };
+    this.emitUpdate(platform, currentRooms, this.statuses[platform], mode, trigger);
+
     try {
-      const result = platform === "douyin"
-        ? await this.adapters.douyin.listRooms()
-        : await this.adapters[platform].listRooms();
+      const result = mode === "featured"
+        ? platform === "douyin"
+          ? await this.adapters.douyin.listFeaturedRooms()
+          : await this.adapters[platform].listFeaturedRooms()
+        : platform === "douyin"
+          ? await this.adapters.douyin.listRooms()
+          : await this.adapters[platform].listRooms();
       const rooms = result.rooms.map((room) => platform === "douyin"
         ? mapDouyinRoom(room as DouyinRoomData)
         : mapPlatformRoom(room, platform));
@@ -110,32 +222,56 @@ export class PlatformService {
 
       this.statuses[platform] = {
         state: "connected",
-        message: `已发现 ${rooms.length} 个真实房间${coverage}`,
+        message: mode === "featured"
+          ? `已发现 ${rooms.length} 个热门房间${coverage}`
+          : `完整同步 ${rooms.length} 个真实房间${coverage}`,
         roomCount: rooms.length,
         categoryCount: result.categoryCount,
         successfulCategories: result.successfulCategories,
         failedCategoryCount,
         partial: result.partial,
+        phase: mode === "featured" ? "featured" : "ready",
+        progress: mode === "featured" ? undefined : 1,
+        lastUpdatedAt: new Date().toISOString(),
+        source: result.source,
       };
       this.lastRooms[platform] = rooms;
+      this.emitUpdate(platform, rooms, this.statuses[platform], mode, trigger);
       return rooms;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const cachedRooms = this.lastRooms[platform];
+      const retainedRooms = this.lastRooms[platform];
       this.statuses[platform] = {
         state: "error",
-        message: cachedRooms.length > 0
-          ? `本次刷新失败，继续使用上次 ${cachedRooms.length} 个房间：${message.slice(0, 96)}`
+        message: retainedRooms.length > 0
+          ? `本次刷新失败，暂保留当前 ${retainedRooms.length} 个房间：${message.slice(0, 96)}`
           : message.slice(0, 140),
-        roomCount: cachedRooms.length || undefined,
+        roomCount: retainedRooms.length || undefined,
+        phase: "error",
+        lastUpdatedAt: this.statuses[platform].lastUpdatedAt,
+        source: this.statuses[platform].source,
       };
-      return cachedRooms;
+      this.emitUpdate(platform, retainedRooms, this.statuses[platform], mode, trigger);
+      return retainedRooms;
+    }
+  }
+
+  private emitUpdate(
+    platform: PlatformId,
+    rooms: LiveRoom[],
+    status: PlatformIntegrationStatus,
+    mode: RoomsLoadMode,
+    trigger: SyncTrigger,
+  ): void {
+    const update: PlatformRoomsUpdate = { platform, rooms, status, mode, trigger };
+    for (const listener of this.updateListeners) {
+      listener(update);
     }
   }
 }
 
 function checkingStatus(message: string): PlatformIntegrationStatus {
-  return { state: "checking", message };
+  return { state: "checking", message, phase: "featured" };
 }
 
 function mapDouyinRoom(room: DouyinRoomData): LiveRoom {
@@ -146,6 +282,7 @@ function mapDouyinRoom(room: DouyinRoomData): LiveRoom {
     anchor: room.anchor || "未知主播",
     category: room.category || "直播",
     viewers: room.viewers,
+    audienceMetric: "platform-online",
     viewerLabel: room.viewerLabel || undefined,
     tags: [room.category || "直播"],
     cover: coverStyle(room.cover, "linear-gradient(135deg, #302155 0%, #7e4da6 52%, #edafd2 100%)"),
@@ -168,6 +305,7 @@ function mapPlatformRoom(room: PlatformRoomData, platform: Exclude<PlatformId, "
     anchor: room.anchor,
     category: room.category,
     viewers: room.viewers,
+    audienceMetric: platform === "huya" || platform === "douyu" ? "heat" : "online",
     viewerLabel: room.viewerLabel || undefined,
     tags: [room.category],
     cover: coverStyle(room.cover, fallbackCover(platform)),

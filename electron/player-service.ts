@@ -1,0 +1,311 @@
+import { app } from "electron";
+import { execFile, spawn } from "node:child_process";
+import { existsSync, promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import { StreamService } from "./stream-service";
+import type { LiveRoom, PlayerInfo, PlayerResult, PlayerState } from "../shared/types";
+
+const execFileAsync = promisify(execFile);
+const settingsFileName = "player-settings.json";
+
+type PlayerCandidate =
+  | { kind: "command"; value: string }
+  | { kind: "path"; value: string }
+  | { kind: "app"; value: string };
+
+interface PlayerDefinition {
+  id: string;
+  name: string;
+  candidates: PlayerCandidate[];
+}
+
+interface ResolvedPlayer extends PlayerInfo {
+  launch(url: string): Promise<void>;
+}
+
+interface PlayerSettingsFile {
+  defaultPlayerId?: string;
+}
+
+export class PlayerService {
+  private playersPromise: Promise<ResolvedPlayer[]> | null = null;
+  private readonly streamService = new StreamService();
+
+  async getState(): Promise<PlayerState> {
+    const players = await this.resolvePlayers();
+    const settings = await this.readSettings();
+    const defaultPlayerId = players.some((player) => player.id === settings.defaultPlayerId)
+      ? settings.defaultPlayerId as string
+      : players[0]?.id ?? "";
+
+    if (settings.defaultPlayerId !== defaultPlayerId) {
+      await this.writeSettings({ defaultPlayerId });
+    }
+
+    return {
+      players: players.map(({ launch: _launch, ...player }) => player),
+      defaultPlayerId,
+      scannedAt: new Date().toISOString(),
+    };
+  }
+
+  async refreshPlayers(): Promise<PlayerState> {
+    this.playersPromise = null;
+    return this.getState();
+  }
+
+  async setDefaultPlayer(playerId: string): Promise<PlayerState> {
+    const players = await this.resolvePlayers();
+    if (!players.some((player) => player.id === playerId)) {
+      throw new Error("选择的播放器没有在本机找到。");
+    }
+
+    await this.writeSettings({ defaultPlayerId: playerId });
+    return this.getState();
+  }
+
+  async requestPlay(room: LiveRoom, playerId?: string): Promise<PlayerResult> {
+    const players = await this.resolvePlayers();
+    const state = await this.getState();
+    const player = players.find((item) => item.id === (playerId ?? state.defaultPlayerId))
+      ?? players.find((item) => item.id === state.defaultPlayerId);
+
+    if (!player) {
+      return { ok: false, message: "没有找到可用的播放器。" };
+    }
+
+    let streamUrl = getPlayableUrl(room);
+    try {
+      const resolvedPlayback = await this.streamService.resolve(room);
+      streamUrl = getPlayableUrl({ ...room, playback: resolvedPlayback }) ?? streamUrl;
+    } catch (error) {
+      if (!streamUrl) {
+        return {
+          ok: false,
+          message: `${platformLabel(room.platform)}直连流解析失败：${shortError(error)}，未打开网页。`,
+        };
+      }
+    }
+
+    if (!streamUrl) {
+      return { ok: false, message: `${platformLabel(room.platform)}暂时没有可播放的直连流，未打开网页。` };
+    }
+
+    try {
+      await player.launch(streamUrl);
+      return {
+        ok: true,
+        url: streamUrl,
+        message: `已使用 ${player.name} 打开直播流。`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, message: `${player.name} 启动失败：${message.slice(0, 140)}` };
+    }
+  }
+
+  private async resolvePlayers(): Promise<ResolvedPlayer[]> {
+    if (!this.playersPromise) {
+      this.playersPromise = this.scanPlayers();
+    }
+    return this.playersPromise;
+  }
+
+  private async scanPlayers(): Promise<ResolvedPlayer[]> {
+    const definitions = getPlayerDefinitions();
+    const resolved = await Promise.all(definitions.map((definition) => resolvePlayer(definition)));
+    return resolved.flatMap((player) => player ? [player] : []);
+  }
+
+  private async readSettings(): Promise<PlayerSettingsFile> {
+    try {
+      const content = await fs.readFile(getSettingsPath(), "utf8");
+      return JSON.parse(content) as PlayerSettingsFile;
+    } catch {
+      return {};
+    }
+  }
+
+  private async writeSettings(settings: PlayerSettingsFile): Promise<void> {
+    const settingsPath = getSettingsPath();
+    await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+    await fs.writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  }
+}
+
+async function resolvePlayer(definition: PlayerDefinition): Promise<ResolvedPlayer | null> {
+  for (const candidate of definition.candidates) {
+    if (candidate.kind === "command") {
+      const executable = await findExecutable(candidate.value);
+      if (executable) {
+        return createResolvedPlayer(definition, executable, "command");
+      }
+      continue;
+    }
+
+    if (!existsSync(candidate.value)) {
+      continue;
+    }
+
+    if (candidate.kind === "app") {
+      return createResolvedPlayer(definition, candidate.value, "app");
+    }
+
+    return createResolvedPlayer(definition, candidate.value, "path");
+  }
+
+  return null;
+}
+
+function createResolvedPlayer(
+  definition: PlayerDefinition,
+  executable: string,
+  source: "command" | "path" | "app",
+): ResolvedPlayer {
+  return {
+    id: definition.id,
+    name: definition.name,
+    kind: "media",
+    location: executable,
+    launch: (url) => definition.id === "vunio"
+      ? launchVunio(executable, url)
+      : source === "app"
+        ? launchCommand("open", ["-a", executable, url])
+        : launchCommand(executable, [url]),
+  };
+}
+
+function launchVunio(appPath: string, streamUrl: string): Promise<void> {
+  const handoffURL = new URL("vunio://play");
+  handoffURL.searchParams.set("url", streamUrl);
+  return launchCommand("open", ["-a", appPath, handoffURL.toString()]);
+}
+
+async function findExecutable(command: string): Promise<string | null> {
+  const lookup = process.platform === "win32" ? "where.exe" : "which";
+  try {
+    const result = await execFileAsync(lookup, [command]);
+    const executable = String(result.stdout).split(/\r?\n/).map((value) => value.trim()).find(Boolean);
+    return executable ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function launchCommand(command: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    const handleError = (error: Error): void => {
+      child.removeListener("spawn", handleSpawn);
+      reject(error);
+    };
+    const handleSpawn = (): void => {
+      child.removeListener("error", handleError);
+      child.unref();
+      resolve();
+    };
+    child.once("error", handleError);
+    child.once("spawn", handleSpawn);
+  });
+}
+
+function getPlayableUrl(room: LiveRoom): string | null {
+  const hlsUrl = firstValue(room.playback?.hls);
+  if (hlsUrl) {
+    return hlsUrl;
+  }
+
+  return firstValue(room.playback?.flv) ?? null;
+}
+
+function platformLabel(platform: LiveRoom["platform"]): string {
+  return {
+    douyin: "抖音",
+    douyu: "斗鱼",
+    huya: "虎牙",
+    bilibili: "哔哩哔哩",
+  }[platform];
+}
+
+function shortError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.slice(0, 120);
+}
+
+function firstValue(values?: Record<string, string>): string | null {
+  return values ? Object.values(values).find((value) => value.trim().length > 0) ?? null : null;
+}
+
+function getSettingsPath(): string {
+  return path.join(app.getPath("userData"), settingsFileName);
+}
+
+function getPlayerDefinitions(): PlayerDefinition[] {
+  const home = os.homedir();
+  const definitions: PlayerDefinition[] = [
+    {
+      id: "vunio",
+      name: "Vunio",
+      candidates: [
+        { kind: "app", value: path.join("/Applications", "Vunio.app") },
+        { kind: "app", value: path.join(home, "Applications", "Vunio.app") },
+      ],
+    },
+    {
+      id: "iina",
+      name: "IINA",
+      candidates: [
+        { kind: "command", value: "iina-cli" },
+        { kind: "app", value: path.join("/Applications", "IINA.app") },
+        { kind: "app", value: path.join(home, "Applications", "IINA.app") },
+      ],
+    },
+    {
+      id: "mpv",
+      name: "mpv",
+      candidates: [
+        { kind: "command", value: "mpv" },
+        { kind: "path", value: path.join("/Applications", "mpv.app", "Contents", "MacOS", "mpv") },
+        { kind: "path", value: path.join(home, "Applications", "mpv.app", "Contents", "MacOS", "mpv") },
+      ],
+    },
+    {
+      id: "vlc",
+      name: "VLC",
+      candidates: [
+        { kind: "command", value: process.platform === "win32" ? "vlc.exe" : "vlc" },
+        { kind: "path", value: path.join("/Applications", "VLC.app", "Contents", "MacOS", "VLC") },
+        { kind: "path", value: path.join(home, "Applications", "VLC.app", "Contents", "MacOS", "VLC") },
+        { kind: "path", value: path.join(process.env.ProgramFiles ?? "", "VideoLAN", "VLC", "vlc.exe") },
+        { kind: "path", value: path.join(process.env["ProgramFiles(x86)"] ?? "", "VideoLAN", "VLC", "vlc.exe") },
+      ],
+    },
+    {
+      id: "celluloid",
+      name: "Celluloid",
+      candidates: [{ kind: "command", value: "celluloid" }],
+    },
+    {
+      id: "potplayer",
+      name: "PotPlayer",
+      candidates: [
+        { kind: "command", value: "PotPlayerMini64.exe" },
+        { kind: "path", value: path.join(process.env.ProgramFiles ?? "", "DAUM", "PotPlayer", "PotPlayerMini64.exe") },
+        { kind: "path", value: path.join(process.env["ProgramFiles(x86)"] ?? "", "DAUM", "PotPlayer", "PotPlayerMini.exe") },
+      ],
+    },
+    {
+      id: "ffplay",
+      name: "ffplay",
+      candidates: [{ kind: "command", value: process.platform === "win32" ? "ffplay.exe" : "ffplay" }],
+    },
+  ];
+
+  return definitions;
+}

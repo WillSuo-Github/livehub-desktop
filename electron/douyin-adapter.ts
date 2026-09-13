@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { mapWithConcurrency } from "./platform-http";
 
 export interface DouyinRoomData {
   id: string;
@@ -26,6 +27,25 @@ export interface DouyinListResult {
   source: string;
 }
 
+interface DouyinCategoryData {
+  id: string;
+  name: string;
+}
+
+interface DouyinCategoriesResult {
+  categories: DouyinCategoryData[];
+}
+
+interface DouyinRoomsResult {
+  rooms: DouyinRoomData[];
+}
+
+interface FeaturedCategoryResult {
+  category: DouyinCategoryData;
+  rooms: DouyinRoomData[];
+  failure?: { id: string; name: string; error: string };
+}
+
 interface ProcessResult {
   stdout: string;
   stderr: string;
@@ -35,6 +55,7 @@ const helperDirectory = path.resolve(__dirname, "../../native/douyin-helper");
 const helperBinaryDirectory = path.join(helperDirectory, "bin");
 const helperBinaryName = process.platform === "win32" ? "douyin-helper.exe" : "douyin-helper";
 const helperBinaryPath = path.join(helperBinaryDirectory, helperBinaryName);
+const featuredCategoryLimit = 8;
 
 function runProcess(
   command: string,
@@ -95,6 +116,43 @@ export class DouyinAdapter {
   private helperPath: string | null = null;
   private helperBuild: Promise<string> | null = null;
 
+  async listFeaturedRooms(): Promise<DouyinListResult> {
+    const categoryResult = await this.invoke<DouyinCategoriesResult>(["categories"]);
+    const categories = categoryResult.categories.slice(0, featuredCategoryLimit);
+    const results = await mapWithConcurrency(categories, 2, async (category): Promise<FeaturedCategoryResult> => {
+      try {
+        const result = await this.invoke<DouyinRoomsResult>([
+          "rooms",
+          "--category",
+          category.id,
+          "--name",
+          category.name,
+        ]);
+        return { category, rooms: result.rooms };
+      } catch (error) {
+        return {
+          category,
+          rooms: [],
+          failure: {
+            id: category.id,
+            name: category.name,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        };
+      }
+    });
+    const failedCategories = results.flatMap((result) => result.failure ? [result.failure] : []);
+
+    return {
+      rooms: dedupeRooms(results.flatMap((result) => result.rooms)),
+      categoryCount: categories.length,
+      successfulCategories: categories.length - failedCategories.length,
+      failedCategories,
+      partial: failedCategories.length > 0,
+      source: "douyin-featured-categories",
+    };
+  }
+
   async listRooms(): Promise<DouyinListResult> {
     return this.invoke<DouyinListResult>(["rooms-all", "--workers", "4"], 180_000);
   }
@@ -144,4 +202,9 @@ export class DouyinAdapter {
     });
     return helperBinaryPath;
   }
+}
+
+function dedupeRooms(rooms: DouyinRoomData[]): DouyinRoomData[] {
+  return Array.from(new Map(rooms.map((room) => [room.id, room])).values())
+    .sort((left, right) => right.viewers - left.viewers);
 }

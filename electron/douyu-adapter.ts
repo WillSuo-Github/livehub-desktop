@@ -11,6 +11,7 @@ const requestHeaders = {
   Referer: "https://www.douyu.com/directory",
 };
 const maxPagesPerCategory = 100;
+const featuredPageLimit = 3;
 
 interface DouyuRoom {
   rid?: number | string;
@@ -62,6 +63,22 @@ interface CategoryResult {
 }
 
 export class DouyuAdapter {
+  async listFeaturedRooms(): Promise<PlatformListResult> {
+    const categories = await this.listCategories();
+    const category = categories.find((item) => item.id === "0_0") ?? categories[0];
+    const result = await this.listCategoryRooms(category, featuredPageLimit);
+    const failedCategories = result.failure ? [result.failure] : [];
+
+    return {
+      rooms: dedupeRooms(result.rooms),
+      categoryCount: 1,
+      successfulCategories: failedCategories.length === 0 ? 1 : 0,
+      failedCategories,
+      partial: failedCategories.length > 0,
+      source: "douyu-featured-directory",
+    };
+  }
+
   async listRooms(): Promise<PlatformListResult> {
     const categories = await this.listCategories();
     const results = await mapWithConcurrency(categories, 6, (category) => this.listCategoryRooms(category));
@@ -120,13 +137,16 @@ export class DouyuAdapter {
     return Array.from(categories.values());
   }
 
-  private async listCategoryRooms(category: DouyuCategory): Promise<CategoryResult> {
+  private async listCategoryRooms(
+    category: DouyuCategory,
+    pageLimit = maxPagesPerCategory,
+  ): Promise<CategoryResult> {
     try {
       const rooms: PlatformRoomData[] = [];
       let totalPage = 0;
       const seenPages = new Set<string>();
 
-      for (let page = 1; page <= Math.min(Math.max(1, totalPage), maxPagesPerCategory); page += 1) {
+      for (let page = 1; page <= Math.min(Math.max(1, totalPage), pageLimit); page += 1) {
         const response = await fetchJson<DouyuListResponse>(`${listUrl}/${category.id}/${page}`, requestHeaders);
         if (response.code !== 0 || !response.data) {
           throw new Error(response.msg || `Douyu category ${category.id} request failed`);
@@ -141,7 +161,7 @@ export class DouyuAdapter {
         seenPages.add(pageKey);
         rooms.push(...pageRooms.map((room) => mapRoom(room, category)));
 
-        if (page >= maxPagesPerCategory && totalPage > page) {
+        if (pageLimit === maxPagesPerCategory && page >= maxPagesPerCategory && totalPage > page) {
           throw new Error(`page limit reached (${maxPagesPerCategory})`);
         }
       }

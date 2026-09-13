@@ -7,6 +7,7 @@ async function request(
   url: string,
   headers: Record<string, string>,
   timeoutMs: number,
+  init: RequestInit = {},
 ): Promise<Response> {
   let lastError: unknown;
 
@@ -16,6 +17,7 @@ async function request(
 
     try {
       const response = await fetch(url, {
+        ...init,
         headers: { ...defaultHeaders, ...headers },
         signal: controller.signal,
       });
@@ -49,6 +51,14 @@ export async function fetchJson<T>(
   headers: Record<string, string> = {},
   timeoutMs = 20_000,
 ): Promise<T> {
+  return (await fetchJsonWithResponse<T>(url, headers, timeoutMs)).data;
+}
+
+export async function fetchJsonWithResponse<T>(
+  url: string,
+  headers: Record<string, string> = {},
+  timeoutMs = 20_000,
+): Promise<{ data: T; response: Response }> {
   const response = await request(url, headers, timeoutMs);
   const body = await response.text();
 
@@ -57,7 +67,30 @@ export async function fetchJson<T>(
   }
 
   try {
-    return JSON.parse(body) as T;
+    return { data: JSON.parse(body) as T, response };
+  } catch {
+    throw new Error(`Invalid JSON from ${new URL(url).hostname}`);
+  }
+}
+
+export async function fetchJsonPost<T>(
+  url: string,
+  body: string,
+  headers: Record<string, string> = {},
+  timeoutMs = 20_000,
+): Promise<T> {
+  const response = await request(url, headers, timeoutMs, {
+    method: "POST",
+    body,
+  });
+  const responseBody = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}`);
+  }
+
+  try {
+    return JSON.parse(responseBody) as T;
   } catch {
     throw new Error(`Invalid JSON from ${new URL(url).hostname}`);
   }

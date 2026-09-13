@@ -16,6 +16,7 @@ const maxPagesPerArea = 100;
 const allSitePageSize = 99;
 const maxAllSitePages = 1_000;
 const maxPageFailures = 8;
+const featuredPageLimit = 3;
 
 interface BilibiliAreaResponse {
   code: number;
@@ -69,6 +70,35 @@ interface AreaResult {
 }
 
 export class BilibiliAdapter {
+  async listFeaturedRooms(): Promise<PlatformListResult> {
+    const pages = Array.from({ length: featuredPageLimit }, (_, index) => index + 1);
+    const pageResults = await mapWithConcurrency(pages, 2, async (page) => {
+      try {
+        return { page, rooms: (await this.fetchAllSitePage(page)).rooms };
+      } catch (error) {
+        return {
+          page,
+          rooms: [],
+          failure: {
+            id: `page-${page}`,
+            name: `热门第 ${page} 页`,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        };
+      }
+    });
+    const failedPages = pageResults.flatMap((result) => result.failure ? [result.failure] : []);
+
+    return {
+      rooms: dedupeRooms(pageResults.flatMap((result) => result.rooms)),
+      categoryCount: pages.length,
+      successfulCategories: pages.length - failedPages.length,
+      failedCategories: failedPages,
+      partial: failedPages.length > 0,
+      source: "bilibili-featured-pagination",
+    };
+  }
+
   async listRooms(): Promise<PlatformListResult> {
     const areas = await this.listAreas();
     try {
