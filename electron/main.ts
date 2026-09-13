@@ -1,5 +1,7 @@
-import { app, BrowserWindow, ipcMain, nativeImage, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell } from "electron";
+import type { MenuItemConstructorOptions } from "electron";
 import { autoUpdater } from "electron-updater";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { PlayerService } from "./player-service";
 import { PlatformService } from "./platform-service";
@@ -13,6 +15,11 @@ let updateStatus: UpdateStatus = {
   state: "idle",
   currentVersion: "",
 };
+const appSettingsFileName = "app-settings.json";
+
+interface AppSettings {
+  backgroundFullSyncEnabled?: boolean;
+}
 
 function registerIpcHandlers(): void {
   ipcMain.handle(
@@ -30,6 +37,17 @@ function registerIpcHandlers(): void {
   ipcMain.handle("app:info", () => ({
     ...service.getAppInfo(app.getVersion()),
   }));
+
+  ipcMain.handle("sync:background:get", () => service.getBackgroundFullSyncEnabled());
+  ipcMain.handle("sync:background:set", async (_event, enabled: boolean) => {
+    if (typeof enabled !== "boolean") {
+      throw new Error("后台全量同步设置无效。");
+    }
+
+    service.setBackgroundFullSyncEnabled(enabled);
+    await saveAppSettings({ backgroundFullSyncEnabled: enabled });
+    return service.getBackgroundFullSyncEnabled();
+  });
 
   ipcMain.handle("players:state", () => playerService.getState());
   ipcMain.handle("players:refresh", () => playerService.refreshPlayers());
@@ -71,6 +89,70 @@ function getUpdateStatus(): UpdateStatus {
     ...updateStatus,
     currentVersion: app.getVersion(),
   };
+}
+
+async function loadAppSettings(): Promise<void> {
+  try {
+    const content = await fs.readFile(getAppSettingsPath(), "utf8");
+    const settings = JSON.parse(content) as AppSettings;
+    if (typeof settings.backgroundFullSyncEnabled === "boolean") {
+      service.setBackgroundFullSyncEnabled(settings.backgroundFullSyncEnabled);
+    }
+  } catch {
+    // First launch or an invalid settings file keeps the default behavior.
+  }
+}
+
+async function saveAppSettings(settings: AppSettings): Promise<void> {
+  const settingsPath = getAppSettingsPath();
+  await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+  await fs.writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+}
+
+function getAppSettingsPath(): string {
+  return path.join(app.getPath("userData"), appSettingsFileName);
+}
+
+function createApplicationMenu(): void {
+  const openSettings: MenuItemConstructorOptions = {
+    label: "设置",
+    accelerator: "CommandOrControl+,",
+    click: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("navigation:settings");
+      }
+    },
+  };
+  const template: MenuItemConstructorOptions[] = process.platform === "darwin"
+    ? [
+        {
+          label: "LiveHub",
+          submenu: [
+            { role: "about" },
+            { type: "separator" },
+            openSettings,
+            { type: "separator" },
+            { role: "hide" },
+            { role: "hideOthers" },
+            { role: "unhide" },
+            { type: "separator" },
+            { role: "quit" },
+          ],
+        },
+        { role: "editMenu" },
+        { role: "windowMenu" },
+      ]
+    : [
+        {
+          label: "文件",
+          submenu: [openSettings, { type: "separator" }, { role: "quit" }],
+        },
+        { role: "editMenu" },
+        { role: "viewMenu" },
+        { role: "windowMenu" },
+      ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function publishUpdateStatus(status: Omit<UpdateStatus, "currentVersion">): void {
@@ -175,8 +257,9 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   app.setAppUserModelId("com.willsuo.livehub");
+  await loadAppSettings();
   if (process.platform === "darwin") {
     const icon = nativeImage.createFromPath(getIconPath());
     if (!icon.isEmpty()) {
@@ -184,6 +267,7 @@ app.whenReady().then(() => {
     }
   }
   registerIpcHandlers();
+  createApplicationMenu();
   createWindow();
   configureAutoUpdater();
 

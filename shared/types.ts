@@ -113,6 +113,9 @@ export interface LiveHubApi {
   getRooms(platform?: PlatformId | "all", mode?: RoomsLoadMode): Promise<LiveRoom[]>;
   onRoomsUpdate(listener: (update: PlatformRoomsUpdate) => void): () => void;
   getAppInfo(): Promise<AppInfo>;
+  getBackgroundFullSyncEnabled(): Promise<boolean>;
+  setBackgroundFullSyncEnabled(enabled: boolean): Promise<boolean>;
+  onOpenSettings(listener: () => void): () => void;
   getPlayerState(): Promise<PlayerState>;
   refreshPlayers(): Promise<PlayerState>;
   setDefaultPlayer(playerId: string): Promise<PlayerState>;

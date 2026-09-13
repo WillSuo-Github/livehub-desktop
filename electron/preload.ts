@@ -23,6 +23,14 @@ const api: LiveHubApi = {
     return () => ipcRenderer.removeListener("rooms:update", handler);
   },
   getAppInfo: (): Promise<AppInfo> => ipcRenderer.invoke("app:info"),
+  getBackgroundFullSyncEnabled: (): Promise<boolean> => ipcRenderer.invoke("sync:background:get"),
+  setBackgroundFullSyncEnabled: (enabled: boolean): Promise<boolean> =>
+    ipcRenderer.invoke("sync:background:set", enabled),
+  onOpenSettings: (listener: () => void): (() => void) => {
+    const handler = () => listener();
+    ipcRenderer.on("navigation:settings", handler);
+    return () => ipcRenderer.removeListener("navigation:settings", handler);
+  },
   getPlayerState: (): Promise<PlayerState> => ipcRenderer.invoke("players:state"),
   refreshPlayers: (): Promise<PlayerState> => ipcRenderer.invoke("players:refresh"),
   setDefaultPlayer: (playerId: string): Promise<PlayerState> =>

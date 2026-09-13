@@ -53,6 +53,7 @@ export class PlatformService {
   private featuredTimer: NodeJS.Timeout | null = null;
   private hourlyTimer: NodeJS.Timeout | null = null;
   private backgroundSyncStarted = false;
+  private backgroundFullSyncEnabled = true;
   private readonly updateListeners = new Set<RoomsUpdateListener>();
 
   async listRooms(
@@ -75,6 +76,31 @@ export class PlatformService {
   subscribe(listener: RoomsUpdateListener): () => void {
     this.updateListeners.add(listener);
     return () => this.updateListeners.delete(listener);
+  }
+
+  getBackgroundFullSyncEnabled(): boolean {
+    return this.backgroundFullSyncEnabled;
+  }
+
+  setBackgroundFullSyncEnabled(enabled: boolean): void {
+    if (enabled === this.backgroundFullSyncEnabled) {
+      return;
+    }
+
+    this.backgroundFullSyncEnabled = enabled;
+    if (!enabled) {
+      if (this.hourlyTimer) {
+        clearTimeout(this.hourlyTimer);
+        this.hourlyTimer = null;
+      }
+      return;
+    }
+
+    if (this.backgroundSyncStarted) {
+      void this.startFullSync("manual")
+        .catch(() => undefined)
+        .finally(() => this.scheduleHourlySync());
+    }
   }
 
   dispose(): void {
@@ -129,9 +155,17 @@ export class PlatformService {
 
     this.backgroundSyncStarted = true;
     this.scheduleFeaturedSync();
+    if (!this.backgroundFullSyncEnabled) {
+      return;
+    }
+
     void this.startFullSync("startup")
       .catch(() => undefined)
-      .finally(() => this.scheduleHourlySync());
+      .finally(() => {
+        if (this.backgroundFullSyncEnabled) {
+          this.scheduleHourlySync();
+        }
+      });
   }
 
   private scheduleFeaturedSync(): void {
@@ -153,15 +187,27 @@ export class PlatformService {
   }
 
   private scheduleHourlySync(): void {
+    if (!this.backgroundFullSyncEnabled) {
+      return;
+    }
+
     if (this.hourlyTimer) {
       clearTimeout(this.hourlyTimer);
     }
 
     this.hourlyTimer = setTimeout(() => {
       this.hourlyTimer = null;
+      if (!this.backgroundFullSyncEnabled) {
+        return;
+      }
+
       void this.startFullSync("hourly")
         .catch(() => undefined)
-        .finally(() => this.scheduleHourlySync());
+        .finally(() => {
+          if (this.backgroundFullSyncEnabled) {
+            this.scheduleHourlySync();
+          }
+        });
     }, fullRefreshIntervalMs);
   }
 

@@ -151,6 +151,8 @@ function App() {
   const [playerState, setPlayerState] = useState<PlayerState | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [playerLoading, setPlayerLoading] = useState(true);
+  const [backgroundFullSyncEnabled, setBackgroundFullSyncEnabled] = useState(true);
+  const [backgroundSyncSaving, setBackgroundSyncSaving] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [sortMode, setSortMode] = useState<RoomSortMode>("online");
   const [toast, setToast] = useState<string | null>(null);
@@ -204,6 +206,26 @@ function App() {
   useEffect(() => {
     void refreshRooms();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    void window.livehub.getBackgroundFullSyncEnabled().then((enabled) => {
+      if (active) {
+        setBackgroundFullSyncEnabled(enabled);
+      }
+    }).catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => window.livehub.onOpenSettings(() => {
+    setActiveView("settings");
+    setSelectedPlatforms([]);
+    setSelectedCategory(null);
+    setCategoryPickerOpen(false);
+  }), []);
 
   useEffect(() => {
     void (async () => {
@@ -437,6 +459,28 @@ function App() {
     }
   };
 
+  const handleBackgroundFullSyncToggle = async (): Promise<void> => {
+    if (backgroundSyncSaving) {
+      return;
+    }
+
+    const previousValue = backgroundFullSyncEnabled;
+    const nextValue = !previousValue;
+    setBackgroundFullSyncEnabled(nextValue);
+    setBackgroundSyncSaving(true);
+
+    try {
+      const savedValue = await window.livehub.setBackgroundFullSyncEnabled(nextValue);
+      setBackgroundFullSyncEnabled(savedValue);
+      setToast(savedValue ? "后台全量同步已开启。" : "后台全量同步已暂停。热门房间仍会继续刷新。");
+    } catch {
+      setBackgroundFullSyncEnabled(previousValue);
+      setToast("后台全量同步设置失败，请稍后重试。");
+    } finally {
+      setBackgroundSyncSaving(false);
+    }
+  };
+
   const handleCheckForUpdates = async (): Promise<void> => {
     try {
       const status = await window.livehub.checkForUpdates();
@@ -662,10 +706,20 @@ function App() {
               <div className="setting-row">
                 <div>
                   <strong>后台全量同步</strong>
-                  <span>热门房间先显示，完整列表启动后同步，并每小时自动刷新。</span>
+                  <span>{backgroundFullSyncEnabled
+                    ? "热门房间先显示，完整列表启动后同步，并每小时自动刷新。"
+                    : "已暂停完整列表同步；热门房间仍会继续刷新。"}</span>
                 </div>
-                <span className="setting-status">运行中</span>
-                <button className="switch" aria-label="后台全量同步状态">
+                <span className={`setting-status ${backgroundFullSyncEnabled ? "" : "pending"}`}>
+                  {backgroundFullSyncEnabled ? "运行中" : "已暂停"}
+                </span>
+                <button
+                  className={`switch ${backgroundFullSyncEnabled ? "active" : ""}`}
+                  onClick={() => void handleBackgroundFullSyncToggle()}
+                  disabled={backgroundSyncSaving}
+                  aria-label="后台全量同步状态"
+                  aria-pressed={backgroundFullSyncEnabled}
+                >
                   <span />
                 </button>
               </div>
