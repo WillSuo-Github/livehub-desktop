@@ -1,13 +1,17 @@
 {
   "name": "livehub-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Cross-platform live streaming desktop client",
+  "author": "WillSuo-Github",
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "dev": "npm run build:electron && concurrently --kill-others-on-fail \"vite --host 127.0.0.1\" \"tsc -p tsconfig.node.json --watch --preserveWatchOutput\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "build:electron": "tsc -p tsconfig.node.json",
     "build": "npm run build:electron && vite build",
+    "build:helper": "node scripts/build-native-helper.mjs",
+    "package": "npm run build:helper && npm run build && electron-builder",
+    "package:mac": "npm run build:helper && npm run build && electron-builder --mac",
     "start": "electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit"
   },
@@ -23,8 +27,56 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
     "electron": "^42.3.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.9.2",
     "vite": "^7.1.5",
     "wait-on": "^8.0.4"
+  },
+  "build": {
+    "appId": "com.willsuo.livehub",
+    "productName": "LiveHub",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "native/douyin-helper/bin",
+        "to": "native/douyin-helper/bin",
+        "filter": [
+          "douyin-helper",
+          "douyin-helper.exe"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "icon": "assets/livehub-icon.png",
+      "category": "public.app-category.entertainment",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "assets/livehub-icon.png",
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "linux": {
+      "icon": "assets/livehub-icon.png",
+      "category": "AudioVideo",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
   }
 }

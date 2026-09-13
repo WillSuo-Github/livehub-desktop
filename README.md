@@ -1,45 +1,146 @@
 # LiveHub Desktop
 
-LiveHub is a cross-platform desktop client for collecting live rooms from Douyin, Douyu, Huya, and Bilibili in one place.
+LiveHub is a cross-platform Electron desktop client for discovering live rooms from Douyin, Douyu, Huya, and Bilibili in one place, then opening a fresh direct stream in a locally installed media player.
 
-## Current status
+The project is designed around one rule: the **Use Player** action always tries the selected media player and never silently falls back to a web page. Opening the platform page is a separate, explicit action.
 
-- Electron desktop shell is ready.
-- React + TypeScript renderer is ready.
-- Multi-platform filters, single-category filtering, search, favorites, detail panel, and settings shell are ready.
-- Douyin data is fetched by our own standard-library Go helper. Its HTML parser flow is adapted from DYLIVE, but DYLIVE is not a runtime dependency.
-- The helper aggregates every currently exposed leaf category, deduplicates rooms, sorts by viewer count, and reports partial category failures.
-- Douyu, Huya, and Bilibili use independent TypeScript adapters and their public directory APIs. Demo rooms are no longer mixed into the result.
-- The adapters aggregate public categories and pagination, deduplicate rooms, retry transient HTTP failures, and expose per-platform coverage status.
-- Cross-platform discovery defaults to reported-online-first sorting. Douyin and Bilibili expose platform-reported online values; Douyu's `ol` and Huya's public `totalCount` are treated as platform heat and placed after comparable online values. Users can toggle back to platform-normalized popularity ranking.
-- Startup fetches a small set of fresh featured rooms first. Full platform aggregation continues in the Electron main process and replaces each platform's rooms as soon as that platform finishes.
-- No room data is persisted to disk. Featured rooms refresh every five minutes, while a complete background refresh starts at launch and repeats one hour after each completed refresh cycle. Both paths use single-flight guards to prevent overlapping crawls.
-- Installed media players are scanned locally (Vunio, IINA, mpv, VLC, Celluloid, PotPlayer, and ffplay when available). No browser fallback is used for playback; opening the room page is a separate explicit action.
-- The player dropdown beside the play button and the settings page both update and persist the default player. Player settings are stored in Electron's user-data directory.
-- Clicking play resolves a fresh direct stream at playback time for Douyin, Douyu, Huya, and Bilibili, then launches the selected media player. If extraction fails, LiveHub reports the error and never opens the platform page.
+## Current release
 
-## Development
+- Version: `0.1.1`
+- Published build: macOS Apple Silicon (`arm64`)
+- Release page: <https://github.com/WillSuo-Github/livehub-desktop/releases/latest>
+
+The source is cross-platform. Windows and Linux packages can be produced with the same Electron Builder configuration on their native build runners. The first published binary is macOS arm64 because it was built on Apple Silicon.
+
+## Features
+
+- One live-room directory for Douyin, Douyu, Huya, and Bilibili.
+- Multi-select platform filtering.
+- Single-select category filtering, including platform + category combinations.
+- Search by room title, anchor, category, and tags.
+- Favorites stored locally in the renderer.
+- Online-audience-first sorting when a platform exposes a comparable online metric.
+- Platform-normalized popularity sorting as a fallback view.
+- Featured rooms appear first while full platform aggregation continues in the background.
+- Background refresh after startup and once per completed hourly refresh cycle.
+- No demo rooms are mixed into production results.
+- Direct-stream resolution at play time for HLS and FLV playback URLs.
+- Explicit web-opening action for users who want to visit the room page.
+- Local media-player discovery with a persistent default player setting.
+
+## Download and install
+
+Download the latest installer from the [GitHub Releases page](https://github.com/WillSuo-Github/livehub-desktop/releases/latest).
+
+### macOS
+
+The current published package targets Apple Silicon (`arm64`). Download the `.dmg`, drag LiveHub to Applications, and launch it from there. The package is currently unsigned, so macOS may require opening it from Finder with Control-click → **Open** the first time.
+
+The `.zip` artifact is also available for users who prefer a portable application bundle.
+
+### Windows and Linux
+
+The application source and packaging configuration support Windows and Linux, but installers for those platforms are not included in the current macOS-only release. Build them on the target operating system with `npm run package`.
+
+## Using LiveHub
+
+1. Launch LiveHub and wait for the featured rooms to appear.
+2. Select one or more platforms in the platform filter.
+3. Select one category, or clear the category filter to show every category.
+4. Use the search box or sorting control to narrow the room list.
+5. Select a room card to open its detail panel.
+6. Choose a detected player and click **Use Player** to resolve a fresh stream and launch it.
+7. Click **Use Web** only when you explicitly want to open the platform page in the system browser.
+
+### Player discovery
+
+LiveHub scans common local installations of:
+
+- Vunio
+- IINA
+- mpv
+- VLC
+- Celluloid
+- PotPlayer
+- ffplay
+
+Only players found on the current machine are shown. Selecting a player beside the play button or in Settings updates the persisted default. Vunio is opened through its `vunio://play` URL scheme; the other players receive the resolved stream URL directly.
+
+## Data sources and limitations
+
+LiveHub uses public platform directory endpoints and adapter logic maintained in this repository. It does not require a platform login and does not use a browser window to resolve a stream.
+
+“All rooms” means all rooms exposed by the public categories and pagination endpoints at the time of refresh. It does not guarantee every room visible inside a platform's own client. Platform risk control, regional access, expired rooms, rate limits, endpoint changes, and missing public categories can all reduce coverage.
+
+Viewer metrics are not uniform across platforms:
+
+- Douyin and Bilibili expose values that are treated as online-audience metrics.
+- Douyu's `ol` and Huya's public `totalCount` are platform heat/popularity values rather than guaranteed comparable viewer counts.
+- The default **Online first** mode puts comparable online metrics first and keeps less comparable values after them.
+- **Normalized popularity** ranks rooms within each platform and merges those rankings, which is useful when raw platform values are not comparable.
+
+Direct stream URLs are short-lived and can stop working after a room changes quality, goes offline, or the platform rejects a request. A failed direct-stream resolution is reported in the app; the player action does not open the web page as a fallback.
+
+The packaged application contains the native Douyin helper for the target operating system. Development builds can compile it on first use, which requires Go 1.22 or newer.
+
+## Development prerequisites
+
+- Node.js 20 or newer
+- npm 10 or newer
+- Go 1.22 or newer for Douyin helper development and packaging
+- A locally installed media player for testing playback
+
+Install dependencies and start the development app:
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-The first Douyin request builds `native/douyin-helper` with Go and fetches a small set of featured categories so the first screen can render quickly. The Electron main process then fetches all exposed categories and pages in the background. The other three adapters follow the same featured-first/full-background flow.
+The development app uses the Vite renderer and Electron main process. The first Douyin request builds `native/douyin-helper/bin/douyin-helper` if the helper is not already present.
 
-The current Douyin web category page exposes 15 rooms per category. This gives LiveHub broad real-time coverage, but it is not a guarantee that every live room on Douyin is returned. The separate cursor-based endpoint is protected by Douyin's browser risk-control flow, so it remains an isolated follow-up provider instead of being bypassed in the first integration. The other platforms have similar directory/API limits, so “all” means all rooms exposed by the public category and pagination endpoints at refresh time.
+## Validation and builds
 
-## Build
+Run the normal checks:
 
 ```bash
 npm run typecheck
 npm run build
-npm start
 ```
 
-## Planned integration
+Build the native helper and package for the current operating system:
 
-1. Stabilize Douyin aggregation with a cursor-pagination provider.
-2. Add more direct-stream quality selection and provider diagnostics.
-3. Add player process lifecycle management and packaged-app verification on Windows and macOS.
-4. Replace external-player launching with bundled native media components where practical.
+```bash
+npm run package
+```
+
+Build the macOS DMG and ZIP artifacts:
+
+```bash
+npm run package:mac
+```
+
+Artifacts are written to `release/`. The package step builds the native Douyin helper first, bundles it outside the application archive, and includes the LiveHub icon in the packaged application.
+
+## Project structure
+
+```text
+electron/                 Electron main process and platform services
+native/douyin-helper/     Go helper for Douyin category and room discovery
+shared/                   Types shared by Electron and the renderer
+src/                      React renderer, filters, room cards, settings
+assets/                   Packaged application resources
+scripts/                  Build-time helper scripts
+```
+
+## Third-party notices
+
+LiveHub is not a runtime dependency of DYLIVE or Streamlink. Selected parser and direct-stream resolution ideas were independently adapted from their public implementations. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source links and license notices.
+
+## Roadmap
+
+1. Add cursor-based Douyin coverage where the public endpoint becomes stable enough to use.
+2. Add provider diagnostics and direct-stream quality selection.
+3. Add packaged Windows and Linux artifacts to the GitHub release workflow.
+4. Add player process lifecycle controls and richer playback error details.
+5. Evaluate bundled playback components where licensing and maintenance make that practical.

@@ -7,7 +7,6 @@ import type { LiveRoom, PlatformId, RoomsLoadMode } from "../shared/types";
 const service = new PlatformService();
 const playerService = new PlayerService();
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const iconPath = path.resolve(__dirname, "../assets/livehub-icon.png");
 let mainWindow: BrowserWindow | null = null;
 
 function registerIpcHandlers(): void {
@@ -62,7 +61,7 @@ function createWindow(): void {
     minWidth: 1080,
     minHeight: 680,
     title: "LiveHub",
-    icon: iconPath,
+    icon: getIconPath(),
     backgroundColor: "#090b10",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
@@ -84,7 +83,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   app.setAppUserModelId("com.willsuo.livehub");
   if (process.platform === "darwin") {
-    const icon = nativeImage.createFromPath(iconPath);
+    const icon = nativeImage.createFromPath(getIconPath());
     if (!icon.isEmpty()) {
       app.dock?.setIcon(icon);
     }
@@ -104,6 +103,12 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
+
+function getIconPath(): string {
+  return app.isPackaged
+    ? path.join(app.getAppPath(), "assets", "livehub-icon.png")
+    : path.resolve(__dirname, "../assets/livehub-icon.png");
+}
 
 app.on("will-quit", () => {
   service.dispose();
