@@ -6,6 +6,41 @@ export type SyncTrigger = "startup" | "hourly" | "manual";
 
 export type PlayerKind = "media";
 
+export type DanmakuKind = "text" | "gift" | "member" | "like" | "system";
+
+export interface DanmakuSender {
+  id?: string;
+  name: string;
+  avatar?: string;
+  level?: number;
+}
+
+export type DanmakuMetadataValue = string | number | boolean | null;
+
+export interface DanmakuEvent {
+  version: 1;
+  id: string;
+  platform: PlatformId;
+  roomId: string;
+  kind: DanmakuKind;
+  text: string;
+  sender?: DanmakuSender;
+  color?: string;
+  timestamp: string;
+  metadata?: Record<string, DanmakuMetadataValue>;
+}
+
+export interface DanmakuHello {
+  type: "hello";
+  version: 1;
+  platform: PlatformId;
+  roomId: string;
+  supported: boolean;
+  message?: string;
+}
+
+export type DanmakuWireMessage = DanmakuEvent | DanmakuHello;
+
 export type RoomStatus = "live" | "offline";
 
 export type AudienceMetric = "online" | "platform-online" | "heat";

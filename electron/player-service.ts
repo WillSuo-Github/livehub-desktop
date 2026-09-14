@@ -4,6 +4,7 @@ import { existsSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { DanmakuService, type DanmakuSessionHandle } from "./danmaku-service";
 import { StreamService } from "./stream-service";
 import { browserUserAgent } from "./platform-http";
 import type {
@@ -39,6 +40,7 @@ interface PlayerSettingsFile {
 interface PlayerLaunchOptions {
   userAgent?: string;
   headers?: Record<string, string>;
+  danmakuUrl?: string;
 }
 
 interface PlayableStream {
@@ -57,6 +59,11 @@ const huyaPlayerLaunchOptions: PlayerLaunchOptions = {
 export class PlayerService {
   private playersPromise: Promise<ResolvedPlayer[]> | null = null;
   private readonly streamService = new StreamService();
+  private readonly danmakuService = new DanmakuService();
+
+  dispose(): void {
+    this.danmakuService.dispose();
+  }
 
   async getState(): Promise<PlayerState> {
     const players = await this.resolvePlayers();
@@ -118,14 +125,27 @@ export class PlayerService {
       return { ok: false, message: `${platformLabel(room.platform)}暂时没有可播放的直连流，未打开网页。` };
     }
 
+    let danmakuSession: DanmakuSessionHandle | null = null;
+    if (player.id === "vunio") {
+      try {
+        danmakuSession = await this.danmakuService.createSession(room);
+      } catch {
+        // A local danmaku bridge must never block direct video playback.
+      }
+    }
+
     try {
-      await player.launch(stream.url, getPlayerLaunchOptions(room, stream.headers));
+      await player.launch(
+        stream.url,
+        getPlayerLaunchOptions(room, stream.headers, danmakuSession?.url),
+      );
       return {
         ok: true,
         url: stream.url,
         message: `已使用 ${player.name} 打开直播流。`,
       };
     } catch (error) {
+      danmakuSession?.dispose();
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, message: `${player.name} 启动失败：${message.slice(0, 140)}` };
     }
@@ -252,6 +272,9 @@ function launchVunio(
   for (const [name, value] of Object.entries(headers)) {
     handoffURL.searchParams.append("header", `${name}: ${value}`);
   }
+  if (options?.danmakuUrl) {
+    handoffURL.searchParams.set("danmakuUrl", options.danmakuUrl);
+  }
 
   return launchCommand("open", ["-a", appPath, handoffURL.toString()]);
 }
@@ -259,6 +282,7 @@ function launchVunio(
 function getPlayerLaunchOptions(
   room: LiveRoom,
   playbackHeaders?: Record<string, string>,
+  danmakuUrl?: string,
 ): PlayerLaunchOptions | undefined {
   const baseOptions = room.platform === "huya" ? huyaPlayerLaunchOptions : undefined;
   const headers = {
@@ -267,11 +291,11 @@ function getPlayerLaunchOptions(
   };
   const userAgent = playbackHeaders?.["User-Agent"] ?? baseOptions?.userAgent;
 
-  if (!userAgent && Object.keys(headers).length === 0) {
+  if (!userAgent && Object.keys(headers).length === 0 && !danmakuUrl) {
     return undefined;
   }
 
-  return { userAgent, headers };
+  return { userAgent, headers, danmakuUrl };
 }
 
 async function findExecutable(command: string): Promise<string | null> {

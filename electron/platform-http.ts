@@ -112,6 +112,20 @@ export async function fetchText(
   return await response.text();
 }
 
+export async function fetchTextWithResponse(
+  url: string,
+  headers: Record<string, string> = {},
+  timeoutMs = 20_000,
+): Promise<{ text: string; response: Response }> {
+  const response = await request(url, headers, timeoutMs);
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}`);
+  }
+
+  return { text: await response.text(), response };
+}
+
 export async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,

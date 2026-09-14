@@ -123,6 +123,12 @@ function createApplicationMenu(): void {
       }
     },
   };
+  const checkUpdates: MenuItemConstructorOptions = {
+    label: "检查更新",
+    click: () => {
+      void checkForUpdates();
+    },
+  };
   const template: MenuItemConstructorOptions[] = process.platform === "darwin"
     ? [
         {
@@ -130,6 +136,7 @@ function createApplicationMenu(): void {
           submenu: [
             { role: "about" },
             { type: "separator" },
+            checkUpdates,
             openSettings,
             { type: "separator" },
             { role: "hide" },
@@ -145,7 +152,7 @@ function createApplicationMenu(): void {
     : [
         {
           label: "文件",
-          submenu: [openSettings, { type: "separator" }, { role: "quit" }],
+          submenu: [checkUpdates, openSettings, { type: "separator" }, { role: "quit" }],
         },
         { role: "editMenu" },
         { role: "viewMenu" },
@@ -292,4 +299,5 @@ function getIconPath(): string {
 
 app.on("will-quit", () => {
   service.dispose();
+  playerService.dispose();
 });
