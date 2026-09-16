@@ -145,6 +145,7 @@ jobs:
           MACOS_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MACOS_CERTIFICATE_PASSWORD || '' }}
           APPLE_API_KEY: ${{ matrix.platform == 'mac' && secrets.APPLE_API_KEY || '' }}
           APPLE_API_KEY_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ matrix.platform == 'mac' && secrets.APPLE_API_ISSUER || '' }}
         run: |
           set -euo pipefail
 
@@ -161,6 +162,7 @@ jobs:
           require_value MACOS_CERTIFICATE_PASSWORD "${MACOS_CERTIFICATE_PASSWORD}"
           require_value APPLE_API_KEY "${APPLE_API_KEY}"
           require_value APPLE_API_KEY_ID "${APPLE_API_KEY_ID}"
+          require_value APPLE_API_ISSUER "${APPLE_API_ISSUER}"
 
       - name: Build and package macOS
         if: matrix.platform == 'mac'
@@ -170,6 +172,7 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           set -euo pipefail
           npm run build:helper

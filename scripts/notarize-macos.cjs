@@ -29,9 +29,10 @@ module.exports = async context => {
 
   const apiKey = process.env.APPLE_API_KEY
   const apiKeyId = process.env.APPLE_API_KEY_ID
-  if (!apiKey || !apiKeyId) {
+  const apiIssuer = process.env.APPLE_API_ISSUER
+  if (!apiKey || !apiKeyId || !apiIssuer) {
     if (isCI) {
-      throw new Error("APPLE_API_KEY and APPLE_API_KEY_ID are required for macOS notarization")
+      throw new Error("APPLE_API_KEY, APPLE_API_KEY_ID, and APPLE_API_ISSUER are required for macOS notarization")
     }
     console.warn("Skipping macOS notarization because personal App Store Connect API key credentials are not configured")
     return
@@ -56,6 +57,8 @@ module.exports = async context => {
       keyPath,
       "--key-id",
       apiKeyId,
+      "--issuer",
+      apiIssuer,
       "--wait",
       "--output-format",
       "json",
