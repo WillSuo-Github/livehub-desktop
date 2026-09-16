@@ -6,7 +6,7 @@ The project is designed around one rule: the **Use Player** action always tries 
 
 ## Current release
 
-- Version: defined in `package.json` and automatically patch-bumped for each release
+- Version: manually maintained in `package.json`; the release workflow never changes it
 - Published build: macOS Apple Silicon (`arm64`) and Windows x64
 - Release page: <https://github.com/WillSuo-Github/livehub-desktop/releases/latest>
 
@@ -134,9 +134,11 @@ Artifacts are written to `release/`. The package step builds the native Douyin h
 
 ### Automated GitHub releases
 
-`.github/workflows/release.yml` runs on every push to `main` and on manual dispatch. It bumps the patch version (`0.1.8` → `0.1.9`), commits the updated `package.json` and `package-lock.json`, creates a matching `vX.Y.Z` tag, builds macOS arm64 and Windows x64 packages, and publishes the installers and updater metadata to one GitHub Release.
+`.github/workflows/release.yml` runs on every push to `main` and on manual dispatch. It reads the version from the pushed `package.json`, creates the matching `vX.Y.Z` tag, builds macOS arm64 and Windows x64 packages, and publishes the installers and updater metadata to one GitHub Release. It never edits or commits version files.
 
-The workflow requires a valid personal-account macOS Developer ID signature and Apple notarization before publishing the macOS artifacts. Windows artifacts are intentionally unsigned and do not require Windows certificate secrets; SmartScreen warnings are expected for new Windows downloads. For macOS signing, add `MACOS_CERTIFICATE_BASE64` (a base64-encoded personal-account Developer ID Application `.p12`) and `MACOS_CERTIFICATE_PASSWORD`. For notarization, add the personal team App Store Connect API key contents as `APPLE_API_KEY`, its key ID as `APPLE_API_KEY_ID`, and that team’s issuer UUID as `APPLE_API_ISSUER`. The repository must also allow GitHub Actions to write contents and push the release commit to `main`.
+Update `package.json` before pushing a release commit. The workflow packages exactly that version; if its matching tag already belongs to another commit, the release job stops so the version can be corrected.
+
+The workflow requires a valid personal-account macOS Developer ID signature and Apple notarization before publishing the macOS artifacts. Windows artifacts are intentionally unsigned and do not require Windows certificate secrets; SmartScreen warnings are expected for new Windows downloads. For macOS signing, add `MACOS_CERTIFICATE_BASE64` (a base64-encoded personal-account Developer ID Application `.p12`) and `MACOS_CERTIFICATE_PASSWORD`. For notarization, add the personal team App Store Connect API key contents as `APPLE_API_KEY`, its key ID as `APPLE_API_KEY_ID`, and that team’s issuer UUID as `APPLE_API_ISSUER`. The repository must also allow GitHub Actions to write contents and push release tags.
 
 ## Project structure
 

@@ -18,73 +18,68 @@ env:
   GO_VERSION: "1.22.x"
 
 jobs:
-  version:
-    name: Bump version and tag release
+  prepare:
+    name: Read version and tag release
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
     outputs:
-      version: ${{ steps.bump.outputs.version }}
-      tag: ${{ steps.bump.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
-      - name: Check out main
+      - name: Check out pushed commit
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Bump patch version and push release tag
-        id: bump
+      - name: Read package version and push release tag
+        id: release
         shell: bash
         run: |
           set -euo pipefail
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          version="$(node -p "require('./package.json').version")"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "package.json contains an invalid release version: ${version}" >&2
+            exit 1
+          fi
+          tag="v${version}"
 
-          for attempt in 1 2 3 4 5; do
-            git fetch --tags origin main
-            git reset --hard origin/main
-            git clean -fdx
-
-            npm version patch --no-git-tag-version --ignore-scripts
-            version="$(node -p "require('./package.json').version")"
-            tag="v${version}"
-
-            git add package.json package-lock.json
-            git commit -m "chore(release): prepare LiveHub ${version} [skip ci]"
-            git tag -a "${tag}" -m "LiveHub ${version}"
-
-            if git push --atomic origin HEAD:main "${tag}"; then
-              echo "version=${version}" >> "${GITHUB_OUTPUT}"
-              echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
-              echo "Created ${tag}"
-              exit 0
+          git fetch --tags origin
+          if git show-ref --tags --verify --quiet "refs/tags/${tag}"; then
+            existing_commit="$(git rev-list -n 1 "${tag}")"
+            if [[ "${existing_commit}" != "${GITHUB_SHA}" ]]; then
+              echo "Release tag ${tag} already points to ${existing_commit}, not ${GITHUB_SHA}. Update package.json to a new version before pushing." >&2
+              exit 1
             fi
+            echo "Using existing ${tag} at ${GITHUB_SHA}"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "${tag}" "${GITHUB_SHA}" -m "LiveHub ${version}"
+            git push origin "${tag}"
+            echo "Created ${tag} from ${GITHUB_SHA}"
+          fi
 
-            git tag -d "${tag}" || true
-            echo "main moved while publishing ${tag}; retrying (${attempt}/5)"
-            sleep 2
-          done
-
-          echo "Unable to publish a release commit after five attempts" >&2
-          exit 1
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
   verify:
     name: Verify release source
-    needs: version
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - name: Check out release tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.version.outputs.tag }}
+          ref: ${{ needs.prepare.outputs.tag }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -100,7 +95,7 @@ jobs:
 
   package:
     name: Package ${{ matrix.name }}
-    needs: [version, verify]
+    needs: [prepare, verify]
     strategy:
       fail-fast: false
       matrix:
@@ -120,7 +115,7 @@ jobs:
       - name: Check out release tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.version.outputs.tag }}
+          ref: ${{ needs.prepare.outputs.tag }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -227,7 +222,7 @@ jobs:
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: LiveHub-${{ matrix.platform }}-${{ needs.version.outputs.version }}
+          name: LiveHub-${{ matrix.platform }}-${{ needs.prepare.outputs.version }}
           path: |
             release/*.dmg
             release/*.dmg.blockmap
@@ -241,7 +236,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [version, package]
+    needs: [prepare, package]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -250,20 +245,20 @@ jobs:
       - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
-          name: LiveHub-mac-${{ needs.version.outputs.version }}
+          name: LiveHub-mac-${{ needs.prepare.outputs.version }}
           path: release
 
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: LiveHub-win-${{ needs.version.outputs.version }}
+          name: LiveHub-win-${{ needs.prepare.outputs.version }}
           path: release
 
       - name: Create or complete GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.version.outputs.tag }}
-          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
           REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
