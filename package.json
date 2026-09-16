@@ -2,6 +2,7 @@
   "name": "livehub-desktop",
   "version": "0.1.7",
   "private": true,
+  "license": "GPL-3.0-only",
   "description": "Cross-platform live streaming desktop client",
   "author": "WillSuo-Github",
   "main": "dist-electron/electron/main.js",
@@ -64,9 +65,11 @@
     "directories": {
       "output": "release"
     },
+    "afterSign": "scripts/notarize-macos.cjs",
     "mac": {
       "icon": "assets/livehub-icon.png",
       "category": "public.app-category.entertainment",
+      "identity": "Developer ID Application: yanke li (NT9VR9C9HY)",
       "target": [
         "dmg",
         "zip"

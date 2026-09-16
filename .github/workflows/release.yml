@@ -1,0 +1,278 @@
+name: Release LiveHub
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: livehub-main-release
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "20.x"
+  GO_VERSION: "1.22.x"
+
+jobs:
+  version:
+    name: Bump version and tag release
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Bump patch version and push release tag
+        id: bump
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3 4 5; do
+            git fetch --tags origin main
+            git reset --hard origin/main
+            git clean -fdx
+
+            npm version patch --no-git-tag-version --ignore-scripts
+            version="$(node -p "require('./package.json').version")"
+            tag="v${version}"
+
+            git add package.json package-lock.json
+            git commit -m "chore(release): prepare LiveHub ${version} [skip ci]"
+            git tag -a "${tag}" -m "LiveHub ${version}"
+
+            if git push --atomic origin HEAD:main "${tag}"; then
+              echo "version=${version}" >> "${GITHUB_OUTPUT}"
+              echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+              echo "Created ${tag}"
+              exit 0
+            fi
+
+            git tag -d "${tag}" || true
+            echo "main moved while publishing ${tag}; retrying (${attempt}/5)"
+            sleep 2
+          done
+
+          echo "Unable to publish a release commit after five attempts" >&2
+          exit 1
+
+  verify:
+    name: Verify release source
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run type checks
+        run: npm run typecheck
+
+  package:
+    name: Package ${{ matrix.name }}
+    needs: [version, verify]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            runner: macos-15
+            platform: mac
+            architecture: arm64
+            metadata: release/latest-mac.yml
+          - name: Windows x64
+            runner: windows-latest
+            platform: win
+            architecture: x64
+            metadata: release/latest.yml
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: native/douyin-helper/go.mod
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify macOS distribution credentials
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ matrix.platform == 'mac' && secrets.MACOS_CERTIFICATE_BASE64 || '' }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MACOS_CERTIFICATE_PASSWORD || '' }}
+          APPLE_API_KEY: ${{ matrix.platform == 'mac' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_KEY_ID: ${{ matrix.platform == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
+        run: |
+          set -euo pipefail
+
+          require_value() {
+            local secret_name="$1"
+            local secret_value="$2"
+            if [[ -z "${secret_value}" ]]; then
+              echo "Missing required GitHub Actions secret: ${secret_name}" >&2
+              exit 1
+            fi
+          }
+
+          require_value MACOS_CERTIFICATE_BASE64 "${MACOS_CERTIFICATE_BASE64}"
+          require_value MACOS_CERTIFICATE_PASSWORD "${MACOS_CERTIFICATE_PASSWORD}"
+          require_value APPLE_API_KEY "${APPLE_API_KEY}"
+          require_value APPLE_API_KEY_ID "${APPLE_API_KEY_ID}"
+
+      - name: Build and package macOS
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+        run: |
+          set -euo pipefail
+          npm run build:helper
+          npm run build
+          npx electron-builder --mac --arm64 --publish never -c.mac.notarize=false
+
+      - name: Build and package Windows
+        if: matrix.platform == 'win'
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          set -euo pipefail
+          npm run build:helper
+          npm run build
+          npx electron-builder --win --x64 --publish never
+
+      - name: Verify macOS signature and notarization
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="release/mac-arm64/LiveHub.app"
+          test -d "${app_path}"
+          codesign --verify --deep --strict --verbose=2 "${app_path}"
+          if ! codesign --display --verbose=4 "${app_path}" 2>&1 | grep -q '^Authority=Developer ID Application:'; then
+            echo "The macOS app is not signed with a Developer ID Application certificate" >&2
+            exit 1
+          fi
+          xcrun stapler validate "${app_path}"
+          spctl --assess --type execute --verbose=4 "${app_path}"
+
+      - name: Verify Windows package artifacts
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -Path release -File -Filter '*.exe')
+          if ($installers.Count -eq 0) {
+            throw 'No Windows installer artifact was produced'
+          }
+          $archives = @(Get-ChildItem -Path release -File -Filter '*.zip')
+          if ($archives.Count -eq 0) {
+            throw 'No Windows ZIP artifact was produced'
+          }
+
+      - name: Verify updater metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "${{ matrix.metadata }}"
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveHub-${{ matrix.platform }}-${{ needs.version.outputs.version }}
+          path: |
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/*.exe
+            release/*.exe.blockmap
+            release/*.zip
+            release/*.zip.blockmap
+            release/latest*.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: LiveHub-mac-${{ needs.version.outputs.version }}
+          path: release
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: LiveHub-win-${{ needs.version.outputs.version }}
+          path: release
+
+      - name: Create or complete GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "${TAG}" --repo "${REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" release/* --repo "${REPOSITORY}" --clobber
+          else
+            gh release create "${TAG}" release/* \
+              --repo "${REPOSITORY}" \
+              --title "LiveHub ${VERSION}" \
+              --generate-notes \
+              --verify-tag \
+              --latest
+          fi

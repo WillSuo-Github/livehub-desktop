@@ -6,11 +6,11 @@ The project is designed around one rule: the **Use Player** action always tries 
 
 ## Current release
 
-- Version: `0.1.7`
-- Published build: macOS Apple Silicon (`arm64`)
+- Version: defined in `package.json` and automatically patch-bumped for each release
+- Published build: macOS Apple Silicon (`arm64`) and Windows x64
 - Release page: <https://github.com/WillSuo-Github/livehub-desktop/releases/latest>
 
-The source is cross-platform. Windows and Linux packages can be produced with the same Electron Builder configuration on their native build runners. The first published binary is macOS arm64 because it was built on Apple Silicon.
+The source is cross-platform. The GitHub Actions release workflow builds macOS arm64 and Windows x64 packages on every push to `main`. Linux packaging remains available from the same Electron Builder configuration on a Linux runner.
 
 ## Features
 
@@ -35,13 +35,18 @@ Download the latest installer from the [GitHub Releases page](https://github.com
 
 ### macOS
 
-The current published package targets Apple Silicon (`arm64`). Download the `.dmg`, drag LiveHub to Applications, and launch it from there. The package is signed with Developer ID and notarized by Apple.
+The published package targets Apple Silicon (`arm64`). Download the `.dmg`, drag LiveHub to Applications, and launch it from there. The automatic release workflow requires Developer ID signing and Apple notarization before it publishes a macOS release.
 
 The `.zip` artifact is also available for users who prefer a portable application bundle.
 
-### Windows and Linux
+### Windows
 
-The application source and packaging configuration support Windows and Linux, but installers for those platforms are not included in the current macOS-only release. Build them on the target operating system with `npm run package`.
+Download the Windows `.exe` installer from the GitHub Releases page. The `.zip` artifact is also available for portable use.
+Windows packages are intentionally unsigned, so SmartScreen may show a warning when they are first downloaded or launched.
+
+### Linux
+
+Linux packaging is supported by the project configuration, but it is not included in the automatic release workflow yet. Build it on a Linux runner with `npm run package`.
 
 ## Using LiveHub
 
@@ -127,6 +132,12 @@ npm run package:mac
 
 Artifacts are written to `release/`. The package step builds the native Douyin helper first, bundles it outside the application archive, and includes the LiveHub icon in the packaged application.
 
+### Automated GitHub releases
+
+`.github/workflows/release.yml` runs on every push to `main` and on manual dispatch. It bumps the patch version (`0.1.7` → `0.1.8`), commits the updated `package.json` and `package-lock.json`, creates a matching `vX.Y.Z` tag, builds macOS arm64 and Windows x64 packages, and publishes the installers and updater metadata to one GitHub Release.
+
+The workflow requires a valid personal-account macOS Developer ID signature and Apple notarization before publishing the macOS artifacts. Windows artifacts are intentionally unsigned and do not require Windows certificate secrets; SmartScreen warnings are expected for new Windows downloads. For macOS signing, add `MACOS_CERTIFICATE_BASE64` (a base64-encoded personal-account Developer ID Application `.p12`) and `MACOS_CERTIFICATE_PASSWORD`. For notarization, add the personal App Store Connect API key contents as `APPLE_API_KEY` and its key ID as `APPLE_API_KEY_ID`; individual API keys do not use an issuer ID. The repository must also allow GitHub Actions to write contents and push the release commit to `main`.
+
 ## Project structure
 
 ```text
@@ -142,10 +153,14 @@ scripts/                  Build-time helper scripts
 
 LiveHub is not a runtime dependency of DYLIVE or Streamlink. Selected parser and direct-stream resolution ideas were independently adapted from their public implementations. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source links and license notices.
 
+## License
+
+LiveHub is licensed under the GNU General Public License v3.0 only. See [LICENSE](LICENSE).
+
 ## Roadmap
 
 1. Add cursor-based Douyin coverage where the public endpoint becomes stable enough to use.
 2. Add provider diagnostics and direct-stream quality selection.
-3. Add packaged Windows and Linux artifacts to the GitHub release workflow.
+3. Add packaged Linux artifacts to the GitHub release workflow.
 4. Add player process lifecycle controls and richer playback error details.
 5. Evaluate bundled playback components where licensing and maintenance make that practical.
