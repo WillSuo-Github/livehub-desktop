@@ -6,7 +6,7 @@ The project is designed around one rule: the **Use Player** action always tries 
 
 ## Current release
 
-- Version: `0.1.6`
+- Version: `0.1.7`
 - Published build: macOS Apple Silicon (`arm64`)
 - Release page: <https://github.com/WillSuo-Github/livehub-desktop/releases/latest>
 
