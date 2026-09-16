@@ -4,6 +4,7 @@ import type { AppInfo, LiveRoom, PlatformId, PlatformRoomsUpdate, PlayerState, U
 type PlatformFilter = "all" | PlatformId;
 type ViewId = "rooms" | "favorites" | "settings";
 type RoomSortMode = "online" | "popularity";
+type RoomLayout = "grid" | "list";
 interface CategoryOption {
   name: string;
   count: number;
@@ -155,6 +156,7 @@ function App() {
   const [backgroundSyncSaving, setBackgroundSyncSaving] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [sortMode, setSortMode] = useState<RoomSortMode>("online");
+  const [roomLayout, setRoomLayout] = useState<RoomLayout>("grid");
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -353,6 +355,8 @@ function App() {
   }, [categoryOptions, categoryQuery]);
 
   const visibleRooms = sortRoomsForDisplay(filteredRooms, sortMode).slice(0, visibleRoomCount);
+  const featuredRoom = roomLayout === "grid" ? visibleRooms[0] : null;
+  const roomsForGrid = featuredRoom ? visibleRooms.slice(1) : visibleRooms;
 
   const totalViewers = rooms.reduce((total, room) => total + room.viewers, 0);
   const audienceMetricCount = new Set(rooms.map((room) => room.audienceMetric ?? "online")).size;
@@ -540,13 +544,13 @@ function App() {
   return (
     <div className={`app-shell ${isMacOS ? "mac-app-shell" : ""}`}>
       <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">LH</div>
-          <div>
-            <strong>LiveHub</strong>
-            <span>STREAM DESK</span>
+          <div className="brand">
+            <div className="brand-mark">LH</div>
+            <div>
+              <strong>LiveHub</strong>
+              <span>跨平台直播</span>
+            </div>
           </div>
-        </div>
 
         <div className="sidebar-section-label">工作台</div>
         <nav className="main-nav" aria-label="主导航">
@@ -729,7 +733,7 @@ function App() {
           <>
             <section className="stats-row" aria-label="直播统计">
               <div className="stat-card">
-                <span className="stat-icon purple">◈</span>
+                <span className="stat-marker purple" aria-hidden="true" />
                 <div>
                   <span>正在直播</span>
                   <strong>{liveCount}</strong>
@@ -737,7 +741,7 @@ function App() {
                 <small>个房间</small>
               </div>
               <div className="stat-card">
-                <span className="stat-icon orange">◉</span>
+                <span className="stat-marker orange" aria-hidden="true" />
                 <div>
                   <span>{totalAudienceLabel}</span>
                   <strong>{formatViewers(totalViewers)}</strong>
@@ -745,7 +749,7 @@ function App() {
                 <small>{totalAudienceHint}</small>
               </div>
               <div className="stat-card">
-                <span className="stat-icon blue">◌</span>
+                <span className="stat-marker blue" aria-hidden="true" />
                 <div>
                   <span>已连接平台</span>
                   <strong>{connectedPlatformCount}</strong>
@@ -757,7 +761,7 @@ function App() {
             <section className="room-section">
               <div className="section-heading">
                 <div>
-                  <span className="eyebrow">DISCOVER</span>
+                  <span className="eyebrow">正在直播 · 精选内容</span>
                   <h2>{activeView === "favorites" ? "我的收藏" : "直播大厅"}<span>{filteredRooms.length}</span></h2>
                 </div>
                 <div className="section-heading-actions">
@@ -766,8 +770,22 @@ function App() {
                     <span>↻</span> 刷新热门
                   </button>
                   <div className="view-toggle">
-                    <button className="view-button active" aria-label="卡片视图">▦</button>
-                    <button className="view-button" aria-label="列表视图">☷</button>
+                    <button
+                      className={`view-button ${roomLayout === "grid" ? "active" : ""}`}
+                      onClick={() => setRoomLayout("grid")}
+                      aria-label="卡片视图"
+                      aria-pressed={roomLayout === "grid"}
+                    >
+                      ▦
+                    </button>
+                    <button
+                      className={`view-button ${roomLayout === "list" ? "active" : ""}`}
+                      onClick={() => setRoomLayout("list")}
+                      aria-label="列表视图"
+                      aria-pressed={roomLayout === "list"}
+                    >
+                      ☷
+                    </button>
                   </div>
                 </div>
               </div>
@@ -905,8 +923,60 @@ function App() {
                 </div>
               </div>
 
+              {!loading && !error && featuredRoom && (
+                <article
+                  className="featured-room"
+                  style={{ background: featuredRoom.cover }}
+                  onClick={() => setSelectedRoom(featuredRoom)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      setSelectedRoom(featuredRoom);
+                    }
+                  }}
+                  tabIndex={0}
+                  aria-label={`打开 ${featuredRoom.anchor} 的直播间`}
+                >
+                  <div className="featured-scrim" />
+                  <div className="featured-copy">
+                    <div className="featured-meta">
+                      <span className="featured-live"><span />正在直播</span>
+                      <span className="featured-platform" style={{ color: platformMeta[featuredRoom.platform].accent }}>
+                        {platformMeta[featuredRoom.platform].label}
+                      </span>
+                    </div>
+                    <h3>{featuredRoom.title}</h3>
+                    <div className="featured-anchor">
+                      <span className="anchor-avatar featured-avatar" style={{ background: platformMeta[featuredRoom.platform].accent }}>
+                        {featuredRoom.anchor.slice(0, 1)}
+                      </span>
+                      <span className="anchor-name">{featuredRoom.anchor}</span>
+                      <span className="featured-audience">{displayViewers(featuredRoom)} {audienceValueLabel(featuredRoom)}</span>
+                    </div>
+                    <div className="featured-actions">
+                      <button className="featured-primary" onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedRoom(featuredRoom);
+                      }}>
+                        查看直播间 <span>→</span>
+                      </button>
+                      <button
+                        className={`featured-secondary ${favorites.includes(featuredRoom.id) ? "favorite" : ""}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleFavorite(featuredRoom.id);
+                        }}
+                        aria-label={favorites.includes(featuredRoom.id) ? "取消收藏" : "收藏直播间"}
+                      >
+                        {favorites.includes(featuredRoom.id) ? "★" : "☆"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="featured-index" aria-hidden="true">01</div>
+                </article>
+              )}
+
               <div className="content-grid">
-                <div className="room-grid">
+                <div className={`room-grid ${roomLayout === "list" ? "list-layout" : ""}`}>
                   {loading && <div className="empty-state">正在加载直播列表…</div>}
                   {!loading && error && <div className="empty-state error-state">{error}</div>}
                   {!loading && !error && filteredRooms.length === 0 && (
@@ -916,7 +986,7 @@ function App() {
                       <span>换个平台或搜索词试试看吧。</span>
                     </div>
                   )}
-                  {!loading && !error && visibleRooms.map((room) => {
+                  {!loading && !error && roomsForGrid.map((room) => {
                     const meta = platformMeta[room.platform];
                     const isFavorite = favorites.includes(room.id);
 
@@ -934,7 +1004,10 @@ function App() {
                       >
                         <div className="room-cover" style={{ background: room.cover }}>
                           <div className="cover-topline">
-                            <span className="live-pill"><span />直播中</span>
+                            <div className="cover-ident">
+                              <span className="live-pill"><span />直播中</span>
+                              <span className="platform-badge" style={{ color: meta.accent }}>{meta.label}</span>
+                            </div>
                             <button
                               className={`favorite-button ${isFavorite ? "favorite" : ""}`}
                               onClick={(event) => {
@@ -946,9 +1019,6 @@ function App() {
                               {isFavorite ? "★" : "☆"}
                             </button>
                           </div>
-                          <span className="platform-stamp" style={{ color: meta.accent }}>
-                            {meta.short}
-                          </span>
                           <div className="cover-bottomline">
                             <span>● {displayViewers(room)} {audienceValueLabel(room)}</span>
                             <span>{room.category}</span>
@@ -961,7 +1031,7 @@ function App() {
                           </div>
                           <div className="room-anchor">
                             <span className="anchor-avatar" style={{ background: meta.accent }}>{room.anchor.slice(0, 1)}</span>
-                            <span>{room.anchor}</span>
+                            <span className="anchor-name">{room.anchor}</span>
                             <span className="platform-name">{meta.label}</span>
                           </div>
                           <div className="tag-row">
@@ -1027,7 +1097,7 @@ function App() {
                             {favorites.includes(selectedRoom.id) ? "★" : "☆"}
                           </button>
                         </div>
-                        <div className="detail-anchor"><span className="anchor-avatar large">{selectedRoom.anchor.slice(0, 1)}</span><span>{selectedRoom.anchor}</span></div>
+                        <div className="detail-anchor"><span className="anchor-avatar large">{selectedRoom.anchor.slice(0, 1)}</span><span className="anchor-name">{selectedRoom.anchor}</span></div>
                         <div className="detail-stats">
                           <div><span>{audienceStatLabel(selectedRoom)}</span><strong>{displayViewers(selectedRoom)}</strong></div>
                           <div><span>分类</span><strong>{selectedRoom.category}</strong></div>
