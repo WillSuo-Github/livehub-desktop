@@ -11,6 +11,11 @@ import type { LiveRoom, PlaybackUrls } from "../shared/types";
 const douyuHeaders = {
   Referer: "https://www.douyu.com/",
 };
+const douyuPlaybackHeaders = {
+  ...douyuHeaders,
+  Origin: "https://www.douyu.com",
+  "User-Agent": browserUserAgent,
+};
 const huyaHeaders = {
   Origin: "https://www.huya.com",
   Referer: "https://www.huya.com/",
@@ -20,6 +25,7 @@ const bilibiliHeaders = {
 };
 const bilibiliPlaybackHeaders = {
   ...bilibiliHeaders,
+  Origin: "https://live.bilibili.com",
   "User-Agent": browserUserAgent,
 };
 const douyuDeviceId = "10000000000000000000000000001501";
@@ -96,6 +102,10 @@ interface BilibiliStream {
   }>;
 }
 
+type BilibiliCodec = NonNullable<
+  NonNullable<BilibiliStream["format"]>[number]["codec"]
+>[number];
+
 export class StreamService {
   async resolve(room: LiveRoom): Promise<PlaybackUrls> {
     switch (room.platform) {
@@ -166,7 +176,7 @@ export class StreamService {
       flv: {
         source: joinStreamUrl(playData.rtmp_url, playData.rtmp_live),
       },
-      headers: douyuHeaders,
+      headers: douyuPlaybackHeaders,
     };
   }
 
@@ -213,7 +223,7 @@ export class StreamService {
   }
 
   private async resolveBilibili(room: LiveRoom): Promise<PlaybackUrls> {
-    const roomId = extractRoomId(room, /^https?:\/\/live\.bilibili\.com\/(\d+)/, "bilibili-");
+    const roomId = extractBilibiliRoomId(room);
     if (!/^\d+$/.test(roomId)) {
       throw new Error("哔哩哔哩房间号无效");
     }
@@ -256,34 +266,55 @@ export class StreamService {
       throw new Error(response.message || "哔哩哔哩直连流获取失败");
     }
 
+    const flv: Record<string, string> = {};
     const hls: Record<string, string> = {};
     for (const stream of response.data?.playurl_info?.playurl?.stream ?? []) {
-      if (stream.protocol_name !== "http_hls") {
+      const protocolName = stream.protocol_name?.toLowerCase();
+      const target = protocolName === "http_stream"
+        ? flv
+        : protocolName === "http_hls"
+          ? hls
+          : null;
+      if (!target) {
         continue;
       }
       for (const format of stream.format ?? []) {
-        if (format.format_name !== "fmp4" && format.format_name !== "ts") {
+        const formatName = format.format_name?.toLowerCase();
+        const isSupportedFormat = target === flv
+          ? formatName === "flv"
+          : formatName === "fmp4" || formatName === "ts";
+        if (!isSupportedFormat) {
           continue;
         }
-        for (const codec of format.codec ?? []) {
-          if (codec.codec_name !== "avc" || !codec.base_url) {
+        const codecs = [...(format.codec ?? [])].sort(compareBilibiliCodecs);
+        for (const codec of codecs) {
+          if (!codec.base_url) {
             continue;
           }
           for (const urlInfo of codec.url_info ?? []) {
             if (!urlInfo.host) {
               continue;
             }
-            const url = `${urlInfo.host}${codec.base_url}${urlInfo.extra ?? ""}`;
-            setUniqueUrl(hls, `${format.format_name}-${hlsCount(hls) + 1}`, url);
+            const url = joinBilibiliStreamUrl(
+              urlInfo.host,
+              codec.base_url,
+              urlInfo.extra ?? "",
+            );
+            const codecName = codec.codec_name?.toLowerCase() || "source";
+            setUniqueUrl(target, `${formatName || "stream"}-${codecName}`, url);
           }
         }
       }
     }
 
-    if (Object.keys(hls).length === 0) {
+    if (Object.keys(flv).length === 0 && Object.keys(hls).length === 0) {
       throw new Error("哔哩哔哩没有返回可播放的直播流");
     }
-    return { hls, headers: bilibiliPlaybackHeaders };
+    return {
+      ...(Object.keys(flv).length === 0 ? {} : { flv }),
+      ...(Object.keys(hls).length === 0 ? {} : { hls }),
+      headers: bilibiliPlaybackHeaders,
+    };
   }
 }
 
@@ -453,6 +484,30 @@ function extractRoomId(room: LiveRoom, urlPattern: RegExp, prefix: string): stri
   return urlMatch?.[1] ?? room.id.replace(prefix, "");
 }
 
+function extractBilibiliRoomId(room: LiveRoom): string {
+  const url = room.webUrl ?? room.url ?? "";
+  try {
+    const parsedURL = new URL(url);
+    if (parsedURL.hostname.toLowerCase().endsWith("bilibili.com")) {
+      const roomIDFromQuery = parsedURL.searchParams.get("room_id")
+        ?? parsedURL.searchParams.get("roomid")
+        ?? parsedURL.searchParams.get("roomId");
+      if (roomIDFromQuery && /^\d+$/.test(roomIDFromQuery)) {
+        return roomIDFromQuery;
+      }
+
+      const pathMatch = parsedURL.pathname.match(/\/(?:room\/|blanc\/|h5\/)?(\d+)(?:\/|$)/i);
+      if (pathMatch?.[1]) {
+        return pathMatch[1];
+      }
+    }
+  } catch {
+    // Fall back to the stable adapter identifier below.
+  }
+
+  return room.id.replace("bilibili-", "");
+}
+
 function joinStreamUrl(baseUrl: string, streamPath: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/${streamPath.replace(/^\/+/, "")}`;
 }
@@ -465,8 +520,32 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number(code)));
 }
 
-function hlsCount(values: Record<string, string>): number {
-  return Object.keys(values).length;
+function compareBilibiliCodecs(
+  left: BilibiliCodec,
+  right: BilibiliCodec,
+): number {
+  return bilibiliCodecPriority(left.codec_name) - bilibiliCodecPriority(right.codec_name);
+}
+
+function bilibiliCodecPriority(codecName: string | undefined): number {
+  switch (codecName?.toLowerCase()) {
+    case "avc":
+      return 0;
+    case "hevc":
+      return 1;
+    case "av1":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+function joinBilibiliStreamUrl(host: string, baseURL: string, extra: string): string {
+  try {
+    return `${new URL(baseURL, host).toString()}${extra}`;
+  } catch {
+    return `${host}${baseURL}${extra}`;
+  }
 }
 
 function md5(value: string): string {
