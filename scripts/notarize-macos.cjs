@@ -40,21 +40,20 @@ module.exports = async context => {
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "livehub-notary-"))
   const keyPath = path.join(tempDir, "AuthKey.p8")
-  const appEntry = fs.readdirSync(context.appOutDir, { withFileTypes: true }).find(
+  const appOutDir = path.resolve(context.appOutDir)
+  const appEntry = fs.readdirSync(appOutDir, { withFileTypes: true }).find(
     entry => entry.isDirectory() && entry.name.endsWith(".app"),
   )
   if (!appEntry) {
-    throw new Error(`Could not find a macOS app bundle in ${context.appOutDir}`)
+    throw new Error(`Could not find a macOS app bundle in ${appOutDir}`)
   }
   const appName = appEntry.name
-  const appPath = path.join(context.appOutDir, appName)
+  const appPath = path.join(appOutDir, appName)
   const uploadPath = path.join(tempDir, `${path.parse(appName).name}.zip`)
   fs.writeFileSync(keyPath, apiKey, { encoding: "utf8", mode: 0o600 })
 
   try {
-    run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", appName, uploadPath], {
-      cwd: path.dirname(context.appOutDir),
-    })
+    run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", appPath, uploadPath])
 
     const rawResult = run("xcrun", [
       "notarytool",
