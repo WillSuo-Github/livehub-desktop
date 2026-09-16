@@ -40,7 +40,14 @@ module.exports = async context => {
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "livehub-notary-"))
   const keyPath = path.join(tempDir, "AuthKey.p8")
-  const appName = path.basename(context.appOutDir)
+  const appEntry = fs.readdirSync(context.appOutDir, { withFileTypes: true }).find(
+    entry => entry.isDirectory() && entry.name.endsWith(".app"),
+  )
+  if (!appEntry) {
+    throw new Error(`Could not find a macOS app bundle in ${context.appOutDir}`)
+  }
+  const appName = appEntry.name
+  const appPath = path.join(context.appOutDir, appName)
   const uploadPath = path.join(tempDir, `${path.parse(appName).name}.zip`)
   fs.writeFileSync(keyPath, apiKey, { encoding: "utf8", mode: 0o600 })
 
@@ -74,7 +81,7 @@ module.exports = async context => {
       throw new Error(`Apple notarization was not accepted: ${result.status || "unknown status"}`)
     }
 
-    execFileSync("xcrun", ["stapler", "staple", context.appOutDir], { stdio: "inherit" })
+    execFileSync("xcrun", ["stapler", "staple", appPath], { stdio: "inherit" })
     console.log(`Apple notarization accepted for ${appName}`)
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true })
