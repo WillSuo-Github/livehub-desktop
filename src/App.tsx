@@ -356,8 +356,6 @@ function App() {
   }, [categoryOptions, categoryQuery]);
 
   const visibleRooms = sortRoomsForDisplay(filteredRooms, sortMode).slice(0, visibleRoomCount);
-  const featuredRoom = roomLayout === "grid" ? visibleRooms[0] : null;
-  const roomsForGrid = featuredRoom ? visibleRooms.slice(1) : visibleRooms;
 
   const totalViewers = rooms.reduce((total, room) => total + room.viewers, 0);
   const audienceMetricCount = new Set(rooms.map((room) => room.audienceMetric ?? "online")).size;
@@ -957,78 +955,26 @@ function App() {
                   </div>
                   <span className="filter-summary">
                     {selectedPlatforms.length === 0 ? "全部平台" : `已选 ${selectedPlatforms.length} 个平台`}
-                    <span> · </span>
-                    {filteredRooms.length.toLocaleString("zh-CN")} 个结果
-                  </span>
-                </div>
+                  <span> · </span>
+                  {filteredRooms.length.toLocaleString("zh-CN")} 个结果
+                </span>
               </div>
+            </div>
 
-              {!loading && !error && featuredRoom && (
-                <article
-                  className="featured-room"
-                  style={{ background: featuredRoom.cover }}
-                  onClick={() => setSelectedRoom(featuredRoom)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      setSelectedRoom(featuredRoom);
-                    }
-                  }}
-                  tabIndex={0}
-                  aria-label={`打开 ${featuredRoom.anchor} 的直播间`}
-                >
-                  <div className="featured-scrim" />
-                  <div className="featured-copy">
-                    <div className="featured-meta">
-                      <span className="featured-live"><span />正在直播</span>
-                      <span className="featured-platform" style={{ color: platformMeta[featuredRoom.platform].accent }}>
-                        {platformMeta[featuredRoom.platform].label}
-                      </span>
-                    </div>
-                    <h3>{featuredRoom.title}</h3>
-                    <div className="featured-anchor">
-                      <span className="anchor-avatar featured-avatar" style={{ background: platformMeta[featuredRoom.platform].accent }}>
-                        {featuredRoom.anchor.slice(0, 1)}
-                      </span>
-                      <span className="anchor-name">{featuredRoom.anchor}</span>
-                      <span className="featured-audience">{displayViewers(featuredRoom)} {audienceValueLabel(featuredRoom)}</span>
-                    </div>
-                    <div className="featured-actions">
-                      <button className="featured-primary" onClick={(event) => {
-                        event.stopPropagation();
-                        setSelectedRoom(featuredRoom);
-                      }}>
-                        查看直播间 <span>→</span>
-                      </button>
-                      <button
-                        className={`featured-secondary ${favorites.includes(featuredRoom.id) ? "favorite" : ""}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleFavorite(featuredRoom.id);
-                        }}
-                        aria-label={favorites.includes(featuredRoom.id) ? "取消收藏" : "收藏直播间"}
-                      >
-                        {favorites.includes(featuredRoom.id) ? "★" : "☆"}
-                      </button>
-                    </div>
+            <div className="content-grid">
+              <div className={`room-grid ${roomLayout === "list" ? "list-layout" : ""}`}>
+                {loading && <div className="empty-state">正在加载直播列表…</div>}
+                {!loading && error && <div className="empty-state error-state">{error}</div>}
+                {!loading && !error && filteredRooms.length === 0 && (
+                  <div className="empty-state">
+                    <span className="empty-icon">⌁</span>
+                    <strong>这里还没有直播</strong>
+                    <span>换个平台或搜索词试试看吧。</span>
                   </div>
-                  <div className="featured-index" aria-hidden="true">01</div>
-                </article>
-              )}
-
-              <div className="content-grid">
-                <div className={`room-grid ${roomLayout === "list" ? "list-layout" : ""}`}>
-                  {loading && <div className="empty-state">正在加载直播列表…</div>}
-                  {!loading && error && <div className="empty-state error-state">{error}</div>}
-                  {!loading && !error && filteredRooms.length === 0 && (
-                    <div className="empty-state">
-                      <span className="empty-icon">⌁</span>
-                      <strong>这里还没有直播</strong>
-                      <span>换个平台或搜索词试试看吧。</span>
-                    </div>
-                  )}
-                  {!loading && !error && roomsForGrid.map((room) => {
-                    const meta = platformMeta[room.platform];
-                    const isFavorite = favorites.includes(room.id);
+                )}
+                {!loading && !error && visibleRooms.map((room) => {
+                  const meta = platformMeta[room.platform];
+                  const isFavorite = favorites.includes(room.id);
 
                     return (
                       <article
