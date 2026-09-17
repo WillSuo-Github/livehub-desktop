@@ -154,6 +154,7 @@ function App() {
   const [playerLoading, setPlayerLoading] = useState(true);
   const [backgroundFullSyncEnabled, setBackgroundFullSyncEnabled] = useState(true);
   const [backgroundSyncSaving, setBackgroundSyncSaving] = useState(false);
+  const [fullSyncing, setFullSyncing] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [sortMode, setSortMode] = useState<RoomSortMode>("online");
   const [roomLayout, setRoomLayout] = useState<RoomLayout>("grid");
@@ -366,6 +367,7 @@ function App() {
   const integrationStatuses = appInfo?.platforms.map((platform) => appInfo[platform]) ?? [];
   const connectedPlatformCount = integrationStatuses.filter((status) => status.state === "connected").length;
   const syncingPlatformCount = integrationStatuses.filter((status) => status.phase === "syncing").length;
+  const isFullSyncRunning = fullSyncing || syncingPlatformCount > 0;
   const hasPlatformIssue = integrationStatuses.some((status) => status.state === "error" || status.partial);
   const allPlatformsConnected = integrationStatuses.length === Object.keys(platformMeta).length
     && integrationStatuses.every((status) => status.state === "connected" && !status.partial && status.phase !== "error");
@@ -482,6 +484,28 @@ function App() {
       setToast("后台全量同步设置失败，请稍后重试。");
     } finally {
       setBackgroundSyncSaving(false);
+    }
+  };
+
+  const handleFullSync = async (): Promise<void> => {
+    if (isFullSyncRunning) {
+      return;
+    }
+
+    setFullSyncing(true);
+    setToast("已开始全量同步，四个平台数据将在后台陆续更新…");
+
+    try {
+      const nextRooms = await window.livehub.getRooms("all", "full");
+      const nextAppInfo = await window.livehub.getAppInfo();
+      setRooms(sortRoomsByOnlineAudience(nextRooms));
+      setAppInfo(nextAppInfo);
+      setSelectedRoom((current) => (current ? nextRooms.find((room) => room.id === current.id) ?? null : null));
+      setToast(`全量同步完成，共获取 ${nextRooms.length.toLocaleString("zh-CN")} 个直播间。`);
+    } catch {
+      setToast("全量同步失败，请稍后重试。");
+    } finally {
+      setFullSyncing(false);
     }
   };
 
@@ -718,6 +742,13 @@ function App() {
                   {backgroundFullSyncEnabled ? "运行中" : "已暂停"}
                 </span>
                 <button
+                  className="secondary-button"
+                  onClick={() => void handleFullSync()}
+                  disabled={loading || isFullSyncRunning}
+                >
+                  {isFullSyncRunning ? "同步中…" : "立即同步"}
+                </button>
+                <button
                   className={`switch ${backgroundFullSyncEnabled ? "active" : ""}`}
                   onClick={() => void handleBackgroundFullSyncToggle()}
                   disabled={backgroundSyncSaving}
@@ -766,8 +797,17 @@ function App() {
                 </div>
                 <div className="section-heading-actions">
                   <span className="sync-note"><span className="demo-dot" /> {syncSummary}</span>
-                  <button className="refresh-button" onClick={() => void refreshRooms(true)} disabled={loading || syncingPlatformCount > 0}>
+                  <button className="refresh-button" onClick={() => void refreshRooms(true)} disabled={loading || isFullSyncRunning}>
                     <span>↻</span> 刷新热门
+                  </button>
+                  <button
+                    className="sync-full-button"
+                    onClick={() => void handleFullSync()}
+                    disabled={loading || isFullSyncRunning}
+                    title="从四个平台抓取全量分区和直播间"
+                  >
+                    <span className={isFullSyncRunning ? "sync-spin" : ""}>⟳</span>
+                    {isFullSyncRunning ? "全量同步中…" : "全量同步"}
                   </button>
                   <div className="view-toggle">
                     <button

@@ -201,7 +201,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex="0"]:
 .section-heading-actions { display: flex; align-items: center; gap: 14px; }
 .sync-note { display: inline-flex; align-items: center; gap: 8px; color: #7f848e; font-size: 11px; }
 .refresh-button { height: 36px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 10px; color: #1e1727; font-size: 11px; font-weight: 800; background: #d1baff; box-shadow: 0 8px 20px rgba(171, 128, 243, 0.15); transition: filter 160ms ease, transform 160ms ease; }
-.refresh-button span { font-size: 16px; line-height: 0; }.refresh-button:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1px); }
+.refresh-button span { font-size: 16px; line-height: 0; }.refresh-button:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1px); }.refresh-button:disabled { cursor: not-allowed; opacity: 0.55; }
+.sync-full-button { height: 36px; display: inline-flex; align-items: center; gap: 7px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: 10px; color: #c7bddb; font-size: 11px; font-weight: 700; background: rgba(255, 255, 255, 0.055); transition: color 160ms ease, border-color 160ms ease, background 160ms ease, transform 160ms ease; }
+.sync-full-button span { font-size: 15px; line-height: 0; }
+.sync-full-button:hover:not(:disabled) { color: #f0ebf8; border-color: rgba(197, 166, 255, 0.38); background: rgba(255, 255, 255, 0.09); transform: translateY(-1px); }
+.sync-full-button:disabled { cursor: not-allowed; opacity: 0.55; }
+.sync-spin { display: inline-block; animation: sync-rotation 1s linear infinite; }
+@keyframes sync-rotation { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .view-toggle { display: flex; gap: 3px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.035); }
 .view-button { width: 29px; height: 25px; border-radius: 7px; color: #696e78; background: transparent; font-size: 15px; }.view-button:hover { color: #d4d0dc; }.view-button.active { color: #e6dafb; background: rgba(164, 130, 239, 0.23); }
 
@@ -276,7 +282,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex="0"]:
 
 @media (max-width: 1160px) {
   .room-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .section-heading-actions { gap: 9px; }
+  .section-heading-actions { gap: 9px; flex-wrap: wrap; }
   .sync-note { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
