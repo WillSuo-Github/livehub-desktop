@@ -262,21 +262,29 @@ function launchVunio(
   streamUrl: string,
   options?: PlayerLaunchOptions,
 ): Promise<void> {
-  const handoffURL = new URL("vunio://play");
-  handoffURL.searchParams.set("url", streamUrl);
-
   const headers = { ...(options?.headers ?? {}) };
   if (options?.userAgent && !headers["User-Agent"]) {
     headers["User-Agent"] = options.userAgent;
   }
+
+  // The query is percent-encoded item by item rather than through
+  // `URLSearchParams`. That API writes application/x-www-form-urlencoded, which
+  // spells a space as "+", while Vunio reads the handoff with RFC 3986 query
+  // decoding and leaves "+" in place. Every forwarded header therefore arrived
+  // as `Referer: +https://live.bilibili.com/`, and the stricter Bilibili live
+  // edges answer a malformed Referer with HTTP 403 while the permissive ones
+  // serve it, which is why the same room played or failed depending on the node
+  // the CDN handed out. `encodeURIComponent` escapes a literal plus as %2B, so
+  // no bare "+" reaches the player.
+  const queryItems = [`url=${encodeURIComponent(streamUrl)}`];
   for (const [name, value] of Object.entries(headers)) {
-    handoffURL.searchParams.append("header", `${name}: ${value}`);
+    queryItems.push(`header=${encodeURIComponent(`${name}: ${value}`)}`);
   }
   if (options?.danmakuUrl) {
-    handoffURL.searchParams.set("danmakuUrl", options.danmakuUrl);
+    queryItems.push(`danmakuUrl=${encodeURIComponent(options.danmakuUrl)}`);
   }
 
-  return launchCommand("open", ["-a", appPath, handoffURL.toString()]);
+  return launchCommand("open", ["-a", appPath, `vunio://play?${queryItems.join("&")}`]);
 }
 
 function getPlayerLaunchOptions(
