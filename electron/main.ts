@@ -5,7 +5,14 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { PlayerService } from "./player-service";
 import { PlatformService } from "./platform-service";
-import type { LiveRoom, PlatformId, RoomsLoadMode, UpdateStatus } from "../shared/types";
+import { normalizeDanmakuKindFilter } from "../shared/danmaku";
+import type {
+  DanmakuKindFilter,
+  LiveRoom,
+  PlatformId,
+  RoomsLoadMode,
+  UpdateStatus,
+} from "../shared/types";
 
 const service = new PlatformService();
 const playerService = new PlayerService();
@@ -19,7 +26,10 @@ const appSettingsFileName = "app-settings.json";
 
 interface AppSettings {
   backgroundFullSyncEnabled?: boolean;
+  danmakuKindFilter?: DanmakuKindFilter;
 }
+
+let appSettings: AppSettings = {};
 
 function registerIpcHandlers(): void {
   ipcMain.handle(
@@ -47,6 +57,13 @@ function registerIpcHandlers(): void {
     service.setBackgroundFullSyncEnabled(enabled);
     await saveAppSettings({ backgroundFullSyncEnabled: enabled });
     return service.getBackgroundFullSyncEnabled();
+  });
+
+  ipcMain.handle("danmaku:filter:get", () => playerService.getDanmakuKindFilter());
+  ipcMain.handle("danmaku:filter:set", async (_event, filter: unknown) => {
+    const saved = playerService.setDanmakuKindFilter(filter);
+    await saveAppSettings({ danmakuKindFilter: saved });
+    return saved;
   });
 
   ipcMain.handle("players:state", () => playerService.getState());
@@ -95,18 +112,23 @@ async function loadAppSettings(): Promise<void> {
   try {
     const content = await fs.readFile(getAppSettingsPath(), "utf8");
     const settings = JSON.parse(content) as AppSettings;
+    appSettings = settings && typeof settings === "object" ? settings : {};
     if (typeof settings.backgroundFullSyncEnabled === "boolean") {
       service.setBackgroundFullSyncEnabled(settings.backgroundFullSyncEnabled);
+    }
+    if (settings.danmakuKindFilter) {
+      playerService.setDanmakuKindFilter(normalizeDanmakuKindFilter(settings.danmakuKindFilter));
     }
   } catch {
     // First launch or an invalid settings file keeps the default behavior.
   }
 }
 
-async function saveAppSettings(settings: AppSettings): Promise<void> {
+async function saveAppSettings(changes: AppSettings): Promise<void> {
   const settingsPath = getAppSettingsPath();
+  appSettings = { ...appSettings, ...changes };
   await fs.mkdir(path.dirname(settingsPath), { recursive: true });
-  await fs.writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  await fs.writeFile(settingsPath, `${JSON.stringify(appSettings, null, 2)}\n`, "utf8");
 }
 
 function getAppSettingsPath(): string {

@@ -219,6 +219,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex="0"]:
 .filter-chip { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border: 1px solid transparent; border-radius: 9px; color: #8d929c; font-size: 11px; background: transparent; transition: color 160ms ease, background 160ms ease; }
 .filter-chip:hover { color: #e4e1e8; background: rgba(255, 255, 255, 0.055); }.filter-chip.active { color: #e6d9ff; background: rgba(158, 123, 232, 0.19); }
 .chip-dot { width: 5px; height: 5px; border-radius: 50%; }
+.setting-row .danmaku-kind-chips { flex: 0 0 auto; justify-content: flex-end; gap: 4px; }
+.setting-row .danmaku-kind-chips .filter-chip { border: 1px solid var(--line); }
+.setting-row .danmaku-kind-chips .filter-chip.active { border-color: rgba(158, 123, 232, 0.45); }
 .sort-button { color: #8b909a; background: transparent; font-size: 11px; }.sort-button:hover { color: #e4e1e9; }.sort-button span { margin-left: 5px; font-size: 14px; }
 .category-filter-row { padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
 .category-picker { position: relative; }.category-trigger { min-width: 210px; height: 35px; display: inline-flex; align-items: center; justify-content: space-between; gap: 18px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; color: #a2a5ae; font-size: 11px; background: rgba(19, 22, 28, 0.86); }.category-trigger:hover, .category-trigger.active { border-color: rgba(180, 147, 245, 0.42); color: #eee9f7; background: rgba(41, 32, 57, 0.62); }.category-trigger-arrow { color: #777c86; font-size: 14px; }

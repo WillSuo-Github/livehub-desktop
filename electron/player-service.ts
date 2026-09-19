@@ -9,6 +9,7 @@ import { StreamService } from "./stream-service";
 import { browserUserAgent } from "./platform-http";
 import type {
   LiveRoom,
+  DanmakuKindFilter,
   PlaybackUrls,
   PlayerInfo,
   PlayerResult,
@@ -63,6 +64,14 @@ export class PlayerService {
 
   dispose(): void {
     this.danmakuService.dispose();
+  }
+
+  getDanmakuKindFilter(): DanmakuKindFilter {
+    return this.danmakuService.getKindFilter();
+  }
+
+  setDanmakuKindFilter(filter: unknown): DanmakuKindFilter {
+    return this.danmakuService.setKindFilter(filter);
   }
 
   async getState(): Promise<PlayerState> {

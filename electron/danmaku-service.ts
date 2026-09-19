@@ -15,11 +15,17 @@ import type {
   DanmakuEvent,
   DanmakuHello,
   DanmakuKind,
+  DanmakuKindFilter,
   DanmakuMetadataValue,
   DanmakuSender,
   LiveRoom,
   PlatformId,
 } from "../shared/types";
+import {
+  allowsDanmakuEvent,
+  defaultDanmakuKindFilter,
+  normalizeDanmakuKindFilter,
+} from "../shared/danmaku";
 
 const localHost = "127.0.0.1";
 const danmakuPathPrefix = "/v1/danmaku/";
@@ -95,6 +101,7 @@ type DanmakuEmitter = (event: DanmakuEvent) => void;
 
 interface DanmakuSessionCallbacks {
   onClosed(token: string): void;
+  kindFilter(): DanmakuKindFilter;
 }
 
 interface BilibiliDanmakuInfoResponse {
@@ -133,6 +140,17 @@ export class DanmakuService {
   private webSocketServer: WebSocketServer | null = null;
   private serverPortPromise: Promise<number> | null = null;
   private readonly sessions = new Map<string, DanmakuSession>();
+  private kindFilter: DanmakuKindFilter = { ...defaultDanmakuKindFilter };
+
+  getKindFilter(): DanmakuKindFilter {
+    return { ...this.kindFilter };
+  }
+
+  // Applies to running sessions as well, so a settings change takes effect during playback.
+  setKindFilter(filter: unknown): DanmakuKindFilter {
+    this.kindFilter = normalizeDanmakuKindFilter(filter);
+    return this.getKindFilter();
+  }
 
   async createSession(room: LiveRoom): Promise<DanmakuSessionHandle> {
     const port = await this.ensureServer();
@@ -143,6 +161,7 @@ export class DanmakuService {
           this.sessions.delete(closedToken);
         }
       },
+      kindFilter: () => this.kindFilter,
     });
     this.sessions.set(token, session);
 
@@ -327,6 +346,9 @@ class DanmakuSession {
 
   private send(message: DanmakuEvent | DanmakuHello): void {
     if (!this.client || this.client.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    if (!("type" in message) && !allowsDanmakuEvent(message, this.callbacks.kindFilter())) {
       return;
     }
     this.client.send(JSON.stringify(message));
@@ -1034,7 +1056,9 @@ function emitDouyinMessage(room: LiveRoom, data: Buffer, emit: DanmakuEmitter): 
     case "WebcastFansclubMessage": {
       const text = douyinStringField(messageFields, 3).trim();
       if (text) {
-        emit(createEvent(room, "text", text, decodeDouyinUser(douyinBytesField(messageFields, 4)), { command: method }));
+        // Fan club notices arrive on the chat channel but read as room announcements,
+        // so they are classified with the other non-conversation room events.
+        emit(createEvent(room, "member", text, decodeDouyinUser(douyinBytesField(messageFields, 4)), { command: method }));
       }
       return;
     }

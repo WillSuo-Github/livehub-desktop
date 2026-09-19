@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AppInfo, LiveRoom, PlatformId, PlatformRoomsUpdate, PlayerState, UpdateStatus } from "../shared/types";
+import type {
+  AppInfo,
+  DanmakuKind,
+  DanmakuKindFilter,
+  LiveRoom,
+  PlatformId,
+  PlatformRoomsUpdate,
+  PlayerState,
+  UpdateStatus,
+} from "../shared/types";
+import { danmakuKindLabels, danmakuKinds, defaultDanmakuKindFilter } from "../shared/danmaku";
 
 type PlatformFilter = "all" | PlatformId;
 type ViewId = "rooms" | "favorites" | "settings";
@@ -154,6 +164,8 @@ function App() {
   const [playerLoading, setPlayerLoading] = useState(true);
   const [backgroundFullSyncEnabled, setBackgroundFullSyncEnabled] = useState(true);
   const [backgroundSyncSaving, setBackgroundSyncSaving] = useState(false);
+  const [danmakuFilter, setDanmakuFilter] = useState<DanmakuKindFilter>(defaultDanmakuKindFilter);
+  const [danmakuFilterSaving, setDanmakuFilterSaving] = useState(false);
   const [fullSyncing, setFullSyncing] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [sortMode, setSortMode] = useState<RoomSortMode>("online");
@@ -215,6 +227,19 @@ function App() {
     void window.livehub.getBackgroundFullSyncEnabled().then((enabled) => {
       if (active) {
         setBackgroundFullSyncEnabled(enabled);
+      }
+    }).catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void window.livehub.getDanmakuKindFilter().then((filter) => {
+      if (active) {
+        setDanmakuFilter(filter);
       }
     }).catch(() => undefined);
 
@@ -366,6 +391,10 @@ function App() {
   const connectedPlatformCount = integrationStatuses.filter((status) => status.state === "connected").length;
   const syncingPlatformCount = integrationStatuses.filter((status) => status.phase === "syncing").length;
   const isFullSyncRunning = fullSyncing || syncingPlatformCount > 0;
+  const blockedDanmakuKinds = danmakuKinds.filter((kind) => !danmakuFilter[kind]);
+  const danmakuFilterSummary = blockedDanmakuKinds.length === 0
+    ? "播放器会收到全部弹幕，包含进场、点赞和礼物提示。"
+    : `已屏蔽 ${blockedDanmakuKinds.map((kind) => danmakuKindLabels[kind]).join("、")}，播放器只收到勾选的类型。`;
   const hasPlatformIssue = integrationStatuses.some((status) => status.state === "error" || status.partial);
   const allPlatformsConnected = integrationStatuses.length === Object.keys(platformMeta).length
     && integrationStatuses.every((status) => status.state === "connected" && !status.partial && status.phase !== "error");
@@ -482,6 +511,30 @@ function App() {
       setToast("后台全量同步设置失败，请稍后重试。");
     } finally {
       setBackgroundSyncSaving(false);
+    }
+  };
+
+  const handleDanmakuKindToggle = async (kind: DanmakuKind): Promise<void> => {
+    if (danmakuFilterSaving) {
+      return;
+    }
+
+    const previousFilter = danmakuFilter;
+    const nextFilter = { ...previousFilter, [kind]: !previousFilter[kind] };
+    setDanmakuFilter(nextFilter);
+    setDanmakuFilterSaving(true);
+
+    try {
+      const savedFilter = await window.livehub.setDanmakuKindFilter(nextFilter);
+      setDanmakuFilter(savedFilter);
+      setToast(savedFilter[kind]
+        ? `${danmakuKindLabels[kind]}弹幕已显示，播放中的直播间立即生效。`
+        : `${danmakuKindLabels[kind]}弹幕已屏蔽，播放中的直播间立即生效。`);
+    } catch {
+      setDanmakuFilter(previousFilter);
+      setToast("弹幕过滤设置失败，请稍后重试。");
+    } finally {
+      setDanmakuFilterSaving(false);
     }
   };
 
@@ -755,6 +808,25 @@ function App() {
                 >
                   <span />
                 </button>
+              </div>
+              <div className="setting-row">
+                <div>
+                  <strong>弹幕过滤</strong>
+                  <span>{danmakuFilterSummary}</span>
+                </div>
+                <div className="filter-chips danmaku-kind-chips">
+                  {danmakuKinds.map((kind) => (
+                    <button
+                      key={kind}
+                      className={`filter-chip ${danmakuFilter[kind] ? "active" : ""}`}
+                      onClick={() => void handleDanmakuKindToggle(kind)}
+                      disabled={danmakuFilterSaving}
+                      aria-pressed={danmakuFilter[kind]}
+                    >
+                      {danmakuKindLabels[kind]}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </section>

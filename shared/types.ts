@@ -8,6 +8,8 @@ export type PlayerKind = "media";
 
 export type DanmakuKind = "text" | "gift" | "member" | "like" | "system";
 
+export type DanmakuKindFilter = Record<DanmakuKind, boolean>;
+
 export interface DanmakuSender {
   id?: string;
   name: string;
@@ -151,6 +153,8 @@ export interface LiveHubApi {
   getAppInfo(): Promise<AppInfo>;
   getBackgroundFullSyncEnabled(): Promise<boolean>;
   setBackgroundFullSyncEnabled(enabled: boolean): Promise<boolean>;
+  getDanmakuKindFilter(): Promise<DanmakuKindFilter>;
+  setDanmakuKindFilter(filter: DanmakuKindFilter): Promise<DanmakuKindFilter>;
   onOpenSettings(listener: () => void): () => void;
   getPlayerState(): Promise<PlayerState>;
   refreshPlayers(): Promise<PlayerState>;

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   AppInfo,
+  DanmakuKindFilter,
   LiveHubApi,
   LiveRoom,
   OpenWebResult,
@@ -26,6 +27,9 @@ const api: LiveHubApi = {
   getBackgroundFullSyncEnabled: (): Promise<boolean> => ipcRenderer.invoke("sync:background:get"),
   setBackgroundFullSyncEnabled: (enabled: boolean): Promise<boolean> =>
     ipcRenderer.invoke("sync:background:set", enabled),
+  getDanmakuKindFilter: (): Promise<DanmakuKindFilter> => ipcRenderer.invoke("danmaku:filter:get"),
+  setDanmakuKindFilter: (filter: DanmakuKindFilter): Promise<DanmakuKindFilter> =>
+    ipcRenderer.invoke("danmaku:filter:set", filter),
   onOpenSettings: (listener: () => void): (() => void) => {
     const handler = () => listener();
     ipcRenderer.on("navigation:settings", handler);
