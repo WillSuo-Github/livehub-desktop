@@ -10,6 +10,7 @@ import type {
   UpdateStatus,
 } from "../shared/types";
 import { danmakuKindLabels, danmakuKinds, defaultDanmakuKindFilter } from "../shared/danmaku";
+import { vunioPlayerId } from "../shared/vunio";
 
 type PlatformFilter = "all" | PlatformId;
 type ViewId = "rooms" | "favorites" | "settings";
@@ -162,6 +163,7 @@ function App() {
   const [playerState, setPlayerState] = useState<PlayerState | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [playerLoading, setPlayerLoading] = useState(true);
+  const [vunioPending, setVunioPending] = useState(false);
   const [backgroundFullSyncEnabled, setBackgroundFullSyncEnabled] = useState(true);
   const [backgroundSyncSaving, setBackgroundSyncSaving] = useState(false);
   const [danmakuFilter, setDanmakuFilter] = useState<DanmakuKindFilter>(defaultDanmakuKindFilter);
@@ -411,6 +413,18 @@ function App() {
   ).length;
   const selectedPlayer = playerState?.players.find((player) => player.id === selectedPlayerId)
     ?? playerState?.players.find((player) => player.id === playerState.defaultPlayerId);
+  const vunioInstalled = playerState?.players.some((player) => player.id === vunioPlayerId) ?? false;
+  const vunioIsDefault = vunioInstalled && selectedPlayer?.id === vunioPlayerId;
+  const vunioButtonLabel = vunioPending
+    ? "处理中…"
+    : !vunioInstalled
+      ? "下载 Vunio 播放器"
+      : vunioIsDefault
+        ? "Vunio 已是默认播放器"
+        : "切换到 Vunio 播放器";
+  const vunioButtonHint = vunioInstalled
+    ? "直播弹幕直接叠在播放画面上"
+    : "支持直播弹幕叠加，直连流播放";
   const updateButtonLabel = updateStatus?.state === "downloaded"
     ? "重启更新"
     : updateStatus?.state === "checking"
@@ -489,6 +503,41 @@ function App() {
       setToast("播放器扫描失败，请稍后重试。");
     } finally {
       setPlayerLoading(false);
+    }
+  };
+
+  // The scanned player list is cached for the whole session, so a Vunio that was
+  // installed after launch would still look missing. Rescan on click and decide
+  // from that fresh result instead of the cached state.
+  const handleVunioAction = async (): Promise<void> => {
+    if (vunioPending) {
+      return;
+    }
+
+    setVunioPending(true);
+
+    try {
+      const scannedState = await window.livehub.refreshPlayers();
+      setPlayerState(scannedState);
+      setSelectedPlayerId((current) =>
+        scannedState.players.some((player) => player.id === current)
+          ? current
+          : scannedState.defaultPlayerId);
+
+      if (!scannedState.players.some((player) => player.id === vunioPlayerId)) {
+        const result = await window.livehub.openVunioSite();
+        setToast(result.message);
+        return;
+      }
+
+      const nextState = await window.livehub.setDefaultPlayer(vunioPlayerId);
+      setPlayerState(nextState);
+      setSelectedPlayerId(nextState.defaultPlayerId);
+      setToast("Vunio 已设为默认播放器。");
+    } catch {
+      setToast("Vunio 暂时不可用，请稍后重试。");
+    } finally {
+      setVunioPending(false);
     }
   };
 
@@ -741,6 +790,26 @@ function App() {
                   ))}
                 </select>
               </div>
+              {isMacOS && (
+                <div className="setting-row">
+                  <div>
+                    <strong>Vunio 播放器</strong>
+                    <span>
+                      {vunioInstalled
+                        ? "已安装，设为默认后直播会带弹幕叠加在画面上。"
+                        : "还没有安装，前往官网下载后即可直接播放直连流并叠加弹幕。"}
+                    </span>
+                  </div>
+                  <button
+                    className="secondary-button vunio-secondary-button"
+                    onClick={() => void handleVunioAction()}
+                    disabled={vunioPending}
+                  >
+                    <span className="vunio-mark">V</span>
+                    {vunioPending ? "处理中…" : vunioInstalled ? "设为默认" : "前往官网"}
+                  </button>
+                </div>
+              )}
               <div className="setting-row">
                 <div>
                   <strong>本机播放器</strong>
@@ -1194,6 +1263,20 @@ function App() {
                             <span>{webOpeningId === selectedRoom.id ? "…" : "↗"}</span>
                             {webOpeningId === selectedRoom.id ? "正在打开" : "使用网页打开直播间"}
                           </button>
+                          {isMacOS && (
+                            <button
+                              className={`vunio-button ${vunioIsDefault ? "active" : ""}`}
+                              onClick={() => void handleVunioAction()}
+                              disabled={vunioPending}
+                              aria-label={`${vunioInstalled ? "把 Vunio 设为默认播放器" : "前往 Vunio 官网下载"}，${vunioButtonHint}`}
+                            >
+                              <span className="vunio-mark">V</span>
+                              <span className="vunio-button-text">
+                                <strong>{vunioButtonLabel}</strong>
+                                <span>{vunioButtonHint}</span>
+                              </span>
+                            </button>
+                          )}
                         </div>
                         <p className="detail-hint">
                           {selectedRoom.demo

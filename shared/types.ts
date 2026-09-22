@@ -165,4 +165,5 @@ export interface LiveHubApi {
   installUpdate(): Promise<void>;
   requestPlay(room: LiveRoom, playerId?: string): Promise<PlayerResult>;
   openWebRoom(room: LiveRoom): Promise<OpenWebResult>;
+  openVunioSite(): Promise<OpenWebResult>;
 }

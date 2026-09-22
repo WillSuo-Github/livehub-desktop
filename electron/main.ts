@@ -6,6 +6,7 @@ import path from "node:path";
 import { PlayerService } from "./player-service";
 import { PlatformService } from "./platform-service";
 import { normalizeDanmakuKindFilter } from "../shared/danmaku";
+import { vunioSiteUrl } from "../shared/vunio";
 import type {
   DanmakuKindFilter,
   LiveRoom,
@@ -97,6 +98,15 @@ function registerIpcHandlers(): void {
       return { ok: true, message: "已使用系统浏览器打开直播间。" };
     } catch {
       return { ok: false, message: "直播间网页打开失败。" };
+    }
+  });
+
+  ipcMain.handle("vunio:open-site", async () => {
+    try {
+      await shell.openExternal(vunioSiteUrl);
+      return { ok: true, message: "已打开 Vunio 官网，安装后回到这里即可选用。" };
+    } catch {
+      return { ok: false, message: "Vunio 官网打开失败，请检查系统浏览器是否可用。" };
     }
   });
 }

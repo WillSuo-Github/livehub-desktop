@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { DanmakuService, type DanmakuSessionHandle } from "./danmaku-service";
 import { StreamService } from "./stream-service";
 import { browserUserAgent } from "./platform-http";
+import { vunioPlayerId, vunioPlayerName } from "../shared/vunio";
 import type {
   LiveRoom,
   DanmakuKindFilter,
@@ -135,7 +136,7 @@ export class PlayerService {
     }
 
     let danmakuSession: DanmakuSessionHandle | null = null;
-    if (player.id === "vunio") {
+    if (player.id === vunioPlayerId) {
       try {
         danmakuSession = await this.danmakuService.createSession(room);
       } catch {
@@ -224,7 +225,7 @@ function createResolvedPlayer(
     kind: "media",
     location: executable,
     launch: (url, options) => {
-      if (definition.id === "vunio") {
+      if (definition.id === vunioPlayerId) {
         return launchVunio(executable, url, options);
       }
       if (definition.id === "iina") {
@@ -348,7 +349,7 @@ function launchCommand(command: string, args: string[]): Promise<void> {
 }
 
 function getPlayableStream(playback?: PlaybackUrls, playerId?: string): PlayableStream | null {
-  const candidateUrls = playerId === "vunio"
+  const candidateUrls = playerId === vunioPlayerId
     ? [firstValue(playback?.flv), firstValue(playback?.hls)]
     : [firstValue(playback?.hls), firstValue(playback?.flv)];
   const url = candidateUrls.find((candidate): candidate is string => Boolean(candidate));
@@ -381,8 +382,8 @@ function getPlayerDefinitions(): PlayerDefinition[] {
   const home = os.homedir();
   const definitions: PlayerDefinition[] = [
     {
-      id: "vunio",
-      name: "Vunio",
+      id: vunioPlayerId,
+      name: vunioPlayerName,
       candidates: [
         { kind: "app", value: path.join("/Applications", "Vunio.app") },
         { kind: "app", value: path.join(home, "Applications", "Vunio.app") },

@@ -76,6 +76,8 @@ LiveHub scans common local installations of:
 
 Only players found on the current machine are shown. Selecting a player beside the play button or in Settings updates the persisted default. Vunio is opened through its `vunio://play` URL scheme; the other players receive the resolved stream URL directly.
 
+macOS builds also show a permanent Vunio action next to the player picker and in Settings. Clicking it rescans the machine: when Vunio is installed it becomes the default player, and when it is missing LiveHub opens <https://vunio.willsuo.com> so it can be downloaded. Vunio ships for macOS only, so the action is hidden on Windows and Linux.
+
 ## Data sources and limitations
 
 LiveHub uses public platform directory endpoints and adapter logic maintained in this repository. It does not require a platform login and does not use a browser window to resolve a stream.
