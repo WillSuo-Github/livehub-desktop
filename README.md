@@ -10,7 +10,7 @@ The project is designed around one rule: the **Use Player** action always tries 
 - Published build: macOS Apple Silicon (`arm64`) and Windows x64
 - Release page: <https://github.com/WillSuo-Github/livehub-desktop/releases/latest>
 
-The source is cross-platform. The GitHub Actions release workflow builds macOS arm64 and Windows x64 packages on every push to `main`. Linux packaging remains available from the same Electron Builder configuration on a Linux runner.
+The source is cross-platform. The GitHub Actions release workflow builds macOS arm64 and Windows x64 packages for every pushed `vX.Y.Z` tag. Linux packaging remains available from the same Electron Builder configuration on a Linux runner.
 
 ## Features
 
@@ -136,11 +136,18 @@ Artifacts are written to `release/`. The package step builds the native Douyin h
 
 ### Automated GitHub releases
 
-`.github/workflows/release.yml` runs on every push to `main` and on manual dispatch. It reads the version from the pushed `package.json`, creates the matching `vX.Y.Z` tag, builds macOS arm64 and Windows x64 packages, and publishes the installers and updater metadata to one GitHub Release. It never edits or commits version files.
+`.github/workflows/release.yml` runs on a pushed `vX.Y.Z` tag and on manual dispatch against such a tag. It reads the version from the tagged `package.json`, builds macOS arm64 and Windows x64 packages, and publishes the installers and updater metadata to one GitHub Release. It never creates tags and never edits or commits version files.
 
-Update `package.json` before pushing a release commit. The workflow packages exactly that version; if its matching tag already belongs to another commit, the release job stops so the version can be corrected.
+Release a version in three steps: bump `package.json` (`npm version X.Y.Z --no-git-tag-version`), push that commit, then push the matching tag.
 
-The workflow requires a valid personal-account macOS Developer ID signature and Apple notarization before publishing the macOS artifacts. Windows artifacts are intentionally unsigned and do not require Windows certificate secrets; SmartScreen warnings are expected for new Windows downloads. For macOS signing, add `MACOS_CERTIFICATE_BASE64` (a base64-encoded personal-account Developer ID Application `.p12`) and `MACOS_CERTIFICATE_PASSWORD`. For notarization, add the personal team App Store Connect API key contents as `APPLE_API_KEY`, its key ID as `APPLE_API_KEY_ID`, and that team’s issuer UUID as `APPLE_API_ISSUER`. The repository must also allow GitHub Actions to write contents and push release tags.
+```bash
+git tag -a vX.Y.Z -m "LiveHub X.Y.Z"
+git push origin vX.Y.Z
+```
+
+The tag name must equal `v` plus the version in `package.json` at that commit; the release job stops on a mismatch so a stale version cannot be shipped. Pushing to `main` without a tag never starts a release build.
+
+The workflow requires a valid personal-account macOS Developer ID signature and Apple notarization before publishing the macOS artifacts. Windows artifacts are intentionally unsigned and do not require Windows certificate secrets; SmartScreen warnings are expected for new Windows downloads. For macOS signing, add `MACOS_CERTIFICATE_BASE64` (a base64-encoded personal-account Developer ID Application `.p12`) and `MACOS_CERTIFICATE_PASSWORD`. For notarization, add the personal team App Store Connect API key contents as `APPLE_API_KEY`, its key ID as `APPLE_API_KEY_ID`, and that team’s issuer UUID as `APPLE_API_ISSUER`. The repository must also allow GitHub Actions to write contents so the release can be published.
 
 ## Project structure
 
