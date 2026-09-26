@@ -1,6 +1,6 @@
 {
   "name": "livehub-desktop",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "private": true,
   "license": "GPL-3.0-only",
   "description": "Cross-platform live streaming desktop client",
