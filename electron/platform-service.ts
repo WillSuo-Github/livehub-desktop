@@ -351,7 +351,8 @@ function mapPlatformRoom(room: PlatformRoomData, platform: Exclude<PlatformId, "
     anchor: room.anchor,
     category: room.category,
     viewers: room.viewers,
-    audienceMetric: platform === "huya" || platform === "douyu" ? "heat" : "online",
+    // Bilibili's list `online` field is its inflated popularity value, so it is not comparable with Douyin's online count.
+    audienceMetric: "heat",
     viewerLabel: room.viewerLabel || undefined,
     tags: [room.category],
     cover: coverStyle(room.cover, fallbackCover(platform)),

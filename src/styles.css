@@ -222,7 +222,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex="0"]:
 .setting-row .danmaku-kind-chips { flex: 0 0 auto; justify-content: flex-end; gap: 4px; }
 .setting-row .danmaku-kind-chips .filter-chip { border: 1px solid var(--line); }
 .setting-row .danmaku-kind-chips .filter-chip.active { border-color: rgba(158, 123, 232, 0.45); }
-.sort-button { color: #8b909a; background: transparent; font-size: 11px; }.sort-button:hover { color: #e4e1e9; }.sort-button span { margin-left: 5px; font-size: 14px; }
+.sort-button { color: #8b909a; background: transparent; font-size: 11px; }.sort-button:hover:not(:disabled) { color: #e4e1e9; }.sort-button:disabled { cursor: default; }.sort-button:disabled span { opacity: 0.35; }.sort-button span { margin-left: 5px; font-size: 14px; }
 .category-filter-row { padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
 .category-picker { position: relative; }.category-trigger { min-width: 210px; height: 35px; display: inline-flex; align-items: center; justify-content: space-between; gap: 18px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; color: #a2a5ae; font-size: 11px; background: rgba(19, 22, 28, 0.86); }.category-trigger:hover, .category-trigger.active { border-color: rgba(180, 147, 245, 0.42); color: #eee9f7; background: rgba(41, 32, 57, 0.62); }.category-trigger-arrow { color: #777c86; font-size: 14px; }
 .category-menu { position: absolute; top: calc(100% + 8px); left: 0; z-index: 8; width: 300px; max-height: 370px; overflow: hidden; padding: 9px; border: 1px solid var(--line-strong); border-radius: 14px; background: #151820; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.48); }

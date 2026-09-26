@@ -19,8 +19,8 @@ The source is cross-platform. The GitHub Actions release workflow builds macOS a
 - Single-select category filtering, including platform + category combinations.
 - Search by room title, anchor, category, and tags.
 - Favorites stored locally in the renderer.
-- Online-audience-first sorting when a platform exposes a comparable online metric.
-- Platform-normalized popularity sorting as a fallback view.
+- Default popularity sorting that normalizes each platform's own ranking before merging platforms.
+- Online-audience sorting when every visible room reports a comparable online count, such as a Douyin-only view.
 - Featured rooms appear first while full platform aggregation continues in the background.
 - Background refresh after startup and once per completed hourly refresh cycle.
 - No demo rooms are mixed into production results.
@@ -86,10 +86,10 @@ LiveHub uses public platform directory endpoints and adapter logic maintained in
 
 Viewer metrics are not uniform across platforms:
 
-- Douyin and Bilibili expose values that are treated as online-audience metrics.
-- Douyu's `ol` and Huya's public `totalCount` are platform heat/popularity values rather than guaranteed comparable viewer counts.
-- The default **Online first** mode puts comparable online metrics first and keeps less comparable values after them.
-- **Normalized popularity** ranks rooms within each platform and merges those rankings, which is useful when raw platform values are not comparable.
+- Douyin exposes a value that is treated as an online-audience metric.
+- Bilibili's list `online`, Douyu's `ol`, and Huya's public `totalCount` are platform heat/popularity values rather than comparable viewer counts. Bilibili's value can be hundreds of thousands for a room with only a handful of high-energy viewers.
+- The default **Popularity** mode ranks rooms within each platform and merges those rankings, so raw values with different units are never compared directly.
+- **Online audience** sorting is available only when every visible room reports a comparable online count; otherwise the control stays on Popularity.
 
 Direct stream URLs are short-lived and can stop working after a room changes quality, goes offline, or the platform rejects a request. A failed direct-stream resolution is reported in the app; the player action does not open the web page as a fallback.
 

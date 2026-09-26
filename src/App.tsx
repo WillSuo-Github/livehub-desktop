@@ -136,7 +136,7 @@ function sortRoomsForDisplay(rooms: LiveRoom[], mode: RoomSortMode): LiveRoom[] 
   return mode === "online" ? sortRoomsByOnlineAudience(rooms) : sortRoomsByNormalizedPopularity(rooms);
 }
 
-const mergePlatformRooms = (currentRooms: LiveRoom[], update: PlatformRoomsUpdate): LiveRoom[] => sortRoomsByOnlineAudience([
+const mergePlatformRooms = (currentRooms: LiveRoom[], update: PlatformRoomsUpdate): LiveRoom[] => sortRoomsByNormalizedPopularity([
   ...currentRooms.filter((room) => room.platform !== update.platform),
   ...update.rooms,
 ]);
@@ -170,7 +170,7 @@ function App() {
   const [danmakuFilterSaving, setDanmakuFilterSaving] = useState(false);
   const [fullSyncing, setFullSyncing] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
-  const [sortMode, setSortMode] = useState<RoomSortMode>("online");
+  const [sortMode, setSortMode] = useState<RoomSortMode>("popularity");
   const [roomLayout, setRoomLayout] = useState<RoomLayout>("grid");
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -184,7 +184,7 @@ function App() {
     try {
       const nextRooms = await window.livehub.getRooms("all", "featured");
       const nextAppInfo = await window.livehub.getAppInfo();
-      setRooms(sortRoomsByOnlineAudience(nextRooms));
+      setRooms(sortRoomsByNormalizedPopularity(nextRooms));
       setAppInfo(nextAppInfo);
       setSelectedRoom((current) => current ? nextRooms.find((room) => room.id === current.id) ?? null : null);
       if (announce) {
@@ -382,7 +382,9 @@ function App() {
     return categoryOptions.filter((option) => option.name.toLowerCase().includes(normalizedQuery));
   }, [categoryOptions, categoryQuery]);
 
-  const visibleRooms = sortRoomsForDisplay(filteredRooms, sortMode).slice(0, visibleRoomCount);
+  const canSortByOnline = filteredRooms.length > 0 && filteredRooms.every(hasReportedOnlineMetric);
+  const effectiveSortMode: RoomSortMode = sortMode === "online" && canSortByOnline ? "online" : "popularity";
+  const visibleRooms = sortRoomsForDisplay(filteredRooms, effectiveSortMode).slice(0, visibleRoomCount);
 
   const totalViewers = rooms.reduce((total, room) => total + room.viewers, 0);
   const audienceMetricCount = new Set(rooms.map((room) => room.audienceMetric ?? "online")).size;
@@ -1001,12 +1003,15 @@ function App() {
                   </div>
                   <button
                     className="sort-button"
-                    onClick={() => setSortMode((current) => current === "online" ? "popularity" : "online")}
-                    title={sortMode === "online"
-                      ? "当前优先使用平台报告的在线人数；斗鱼和虎牙暂无可比并发人数，点击切换综合热度"
-                      : "当前按各平台内部排名归一化，点击切换在线人数优先"}
+                    disabled={!canSortByOnline}
+                    onClick={() => setSortMode(effectiveSortMode === "online" ? "popularity" : "online")}
+                    title={!canSortByOnline
+                      ? "B 站、斗鱼和虎牙只提供平台人气，无法和在线人数比较。只筛选抖音时可以按在线人数排序"
+                      : effectiveSortMode === "online"
+                        ? "当前按平台报告的在线人数排序，点击切换综合热度"
+                        : "当前按各平台内部排名归一化，点击切换在线人数"}
                   >
-                    {sortMode === "online" ? "在线人数优先" : "综合热度"} <span>↕</span>
+                    {effectiveSortMode === "online" ? "在线人数" : "综合热度"} <span>↕</span>
                   </button>
                 </div>
 
