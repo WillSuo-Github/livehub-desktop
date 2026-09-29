@@ -29,6 +29,7 @@ const bilibiliPlaybackHeaders = {
   "User-Agent": browserUserAgent,
 };
 const douyuDeviceId = "10000000000000000000000000001501";
+const douyuPreferredCdn = "hw-h5";
 
 interface DouyuEncryptionResponse {
   error: number;
@@ -153,20 +154,37 @@ export class StreamService {
       tt: String(timestamp),
       did: douyuDeviceId,
       auth,
-      cdn: "",
+      cdn: douyuPreferredCdn,
       rate: "0",
       hevc: "0",
       fa: "0",
       ive: "0",
     });
-    const playResponse = await fetchJsonPost<DouyuPlayResponse>(
-      `https://www.douyu.com/lapi/live/getH5PlayV1/${roomId}`,
-      body.toString(),
-      {
-        ...douyuHeaders,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-    );
+    const requestPlay = (cdn: string): Promise<DouyuPlayResponse> => {
+      body.set("cdn", cdn);
+      return fetchJsonPost<DouyuPlayResponse>(
+        `https://www.douyu.com/lapi/live/getH5PlayV1/${roomId}`,
+        body.toString(),
+        {
+          ...douyuHeaders,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      );
+    };
+    // The automatic line can select an edge that closes every FLV response
+    // after a few hundred milliseconds. Prefer the alternate line when the
+    // room offers it, while retaining the automatic line for other rooms.
+    let preferredResponse: DouyuPlayResponse | null = null;
+    try {
+      preferredResponse = await requestPlay(douyuPreferredCdn);
+    } catch {
+      // A failed alternate line should not prevent the automatic line.
+    }
+    const playResponse = preferredResponse?.error === 0
+      && preferredResponse.data?.rtmp_url
+      && preferredResponse.data.rtmp_live
+      ? preferredResponse
+      : await requestPlay("");
     const playData = playResponse.data;
     if (playResponse.error !== 0 || !playData?.rtmp_url || !playData.rtmp_live) {
       throw new Error(playResponse.msg || "斗鱼直连流获取失败");
