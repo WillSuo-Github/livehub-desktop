@@ -122,7 +122,8 @@ function sortRoomsByOnlineAudience(rooms: LiveRoom[]): LiveRoom[] {
       return viewerDifference;
     }
 
-    return platformTieBreakOrder.indexOf(left.platform) - platformTieBreakOrder.indexOf(right.platform);
+    return platformTieBreakOrder.indexOf(left.platform) - platformTieBreakOrder.indexOf(right.platform)
+      || left.id.localeCompare(right.id);
   });
   const unavailableRooms = rooms.filter((room) => !hasReportedOnlineMetric(room));
 
@@ -136,10 +137,10 @@ function sortRoomsForDisplay(rooms: LiveRoom[], mode: RoomSortMode): LiveRoom[] 
   return mode === "online" ? sortRoomsByOnlineAudience(rooms) : sortRoomsByNormalizedPopularity(rooms);
 }
 
-const mergePlatformRooms = (currentRooms: LiveRoom[], update: PlatformRoomsUpdate): LiveRoom[] => sortRoomsByNormalizedPopularity([
+const mergePlatformRooms = (currentRooms: LiveRoom[], update: PlatformRoomsUpdate): LiveRoom[] => [
   ...currentRooms.filter((room) => room.platform !== update.platform),
   ...update.rooms,
-]);
+];
 
 function App() {
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -187,7 +188,7 @@ function App() {
     try {
       const nextRooms = await window.livehub.getRooms("all", "featured");
       const nextAppInfo = await window.livehub.getAppInfo();
-      setRooms(sortRoomsByNormalizedPopularity(nextRooms));
+      setRooms(nextRooms);
       setAppInfo(nextAppInfo);
       setSelectedRoom((current) => current ? nextRooms.find((room) => room.id === current.id) ?? null : null);
       if (announce) {
@@ -407,15 +408,26 @@ function App() {
     return categoryOptions.filter((option) => option.name.toLowerCase().includes(normalizedQuery));
   }, [categoryOptions, categoryQuery]);
 
-  const canSortByOnline = filteredRooms.length > 0 && filteredRooms.every(hasReportedOnlineMetric);
+  const canSortByOnline = useMemo(() =>
+    filteredRooms.length > 0 && filteredRooms.every(hasReportedOnlineMetric),
+  [filteredRooms]);
   const effectiveSortMode: RoomSortMode = sortMode === "online" && canSortByOnline ? "online" : "popularity";
-  const visibleRooms = sortRoomsForDisplay(filteredRooms, effectiveSortMode).slice(0, visibleRoomCount);
+  const sortedRooms = useMemo(() => sortRoomsForDisplay(filteredRooms, effectiveSortMode), [filteredRooms, effectiveSortMode]);
+  const visibleRooms = useMemo(() => sortedRooms.slice(0, visibleRoomCount), [sortedRooms, visibleRoomCount]);
 
-  const totalViewers = rooms.reduce((total, room) => total + room.viewers, 0);
-  const audienceMetricCount = new Set(rooms.map((room) => room.audienceMetric ?? "online")).size;
+  const { totalViewers, audienceMetricCount, liveCount } = useMemo(() => {
+    let totalViewers = 0;
+    let liveCount = 0;
+    const audienceMetrics = new Set<string>();
+    for (const room of rooms) {
+      totalViewers += room.viewers;
+      if (room.status === "live") liveCount += 1;
+      audienceMetrics.add(room.audienceMetric ?? "online");
+    }
+    return { totalViewers, audienceMetricCount: audienceMetrics.size, liveCount };
+  }, [rooms]);
   const totalAudienceLabel = audienceMetricCount > 1 ? "平台指标合计" : "总观看人数";
   const totalAudienceHint = audienceMetricCount > 1 ? "平台口径混合" : "实时估算";
-  const liveCount = rooms.filter((room) => room.status === "live").length;
   const integrationStatuses = appInfo?.platforms.map((platform) => appInfo[platform]) ?? [];
   const connectedPlatformCount = integrationStatuses.filter((status) => status.state === "connected").length;
   const syncingPlatformCount = integrationStatuses.filter((status) => status.phase === "syncing").length;
@@ -625,7 +637,7 @@ function App() {
     try {
       const nextRooms = await window.livehub.getRooms("all", "full");
       const nextAppInfo = await window.livehub.getAppInfo();
-      setRooms(sortRoomsByOnlineAudience(nextRooms));
+      setRooms(nextRooms);
       setAppInfo(nextAppInfo);
       setSelectedRoom((current) => (current ? nextRooms.find((room) => room.id === current.id) ?? null : null));
       setToast(`全量同步完成，共获取 ${nextRooms.length.toLocaleString("zh-CN")} 个直播间。`);
