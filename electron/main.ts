@@ -150,9 +150,13 @@ function createApplicationMenu(): void {
     label: "设置",
     accelerator: "CommandOrControl+,",
     click: () => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("navigation:settings");
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        createWindow("settings");
+        return;
       }
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send("navigation:settings");
     },
   };
   const checkUpdates: MenuItemConstructorOptions = {
@@ -171,6 +175,8 @@ function createApplicationMenu(): void {
             checkUpdates,
             openSettings,
             { type: "separator" },
+            { role: "services" },
+            { type: "separator" },
             { role: "hide" },
             { role: "hideOthers" },
             { role: "unhide" },
@@ -178,13 +184,21 @@ function createApplicationMenu(): void {
             { role: "quit" },
           ],
         },
+        { label: "文件", submenu: [{ role: "close" }] },
         { role: "editMenu" },
+        { role: "viewMenu" },
         { role: "windowMenu" },
       ]
     : [
         {
           label: "文件",
-          submenu: [checkUpdates, openSettings, { type: "separator" }, { role: "quit" }],
+          submenu: [
+            checkUpdates,
+            openSettings,
+            { type: "separator" },
+            { role: "close" },
+            { role: "quit" },
+          ],
         },
         { role: "editMenu" },
         { role: "viewMenu" },
@@ -270,7 +284,7 @@ function configureAutoUpdater(): void {
   setTimeout(() => void checkForUpdates(), 4000);
 }
 
-function createWindow(): void {
+function createWindow(initialView: "rooms" | "settings" = "rooms"): void {
   const window = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -290,9 +304,13 @@ function createWindow(): void {
   mainWindow = window;
 
   if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
-    void window.loadURL(process.env.VITE_DEV_SERVER_URL);
+    const devUrl = new URL(process.env.VITE_DEV_SERVER_URL);
+    devUrl.searchParams.set("view", initialView);
+    void window.loadURL(devUrl.toString());
   } else {
-    void window.loadFile(path.join(__dirname, "../../dist/index.html"));
+    void window.loadFile(path.join(__dirname, "../../dist/index.html"), {
+      query: { view: initialView },
+    });
   }
 }
 

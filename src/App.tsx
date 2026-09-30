@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AppInfo,
   DanmakuKind,
@@ -142,9 +142,12 @@ const mergePlatformRooms = (currentRooms: LiveRoom[], update: PlatformRoomsUpdat
 ]);
 
 function App() {
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [rooms, setRooms] = useState<LiveRoom[]>([]);
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
-  const [activeView, setActiveView] = useState<ViewId>("rooms");
+  const [activeView, setActiveView] = useState<ViewId>(() =>
+    new URLSearchParams(window.location.search).get("view") === "settings" ? "settings" : "rooms",
+  );
   const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformId[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categoryQuery, setCategoryQuery] = useState("");
@@ -256,6 +259,28 @@ function App() {
     setSelectedCategory(null);
     setCategoryPickerOpen(false);
   }), []);
+
+  useEffect(() => {
+    const handleSearchShortcut = (event: KeyboardEvent): void => {
+      const isMac = navigator.platform.startsWith("Mac");
+      const primaryModifierOnly = isMac
+        ? event.metaKey && !event.ctrlKey
+        : event.ctrlKey && !event.metaKey;
+      if (!primaryModifierOnly || event.altKey || event.shiftKey) {
+        return;
+      }
+      if (event.key.toLowerCase() !== "f" && event.key.toLowerCase() !== "k") {
+        return;
+      }
+      event.preventDefault();
+      setSelectedRoom(null);
+      setActiveView("rooms");
+      searchInputRef.current?.focus();
+    };
+
+    window.addEventListener("keydown", handleSearchShortcut);
+    return () => window.removeEventListener("keydown", handleSearchShortcut);
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -754,6 +779,7 @@ function App() {
           <label className="search-box">
             <span className="search-icon">⌕</span>
             <input
+              ref={searchInputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="搜索主播、房间或分类"
