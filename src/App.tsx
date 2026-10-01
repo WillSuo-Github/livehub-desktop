@@ -359,6 +359,15 @@ function App() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [selectedRoom]);
 
+  const hasLiveFavorites = useMemo(() => {
+    if (favorites.length === 0) {
+      return false;
+    }
+
+    const favoriteIds = new Set(favorites);
+    return rooms.some((room) => room.status === "live" && favoriteIds.has(room.id));
+  }, [favorites, rooms]);
+
   const filteredRooms = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
@@ -731,6 +740,14 @@ function App() {
           >
             <span className="nav-icon">☆</span>
             <span>我的收藏</span>
+            {hasLiveFavorites && (
+              <span
+                className="nav-live-dot"
+                role="img"
+                aria-label="收藏中有房间正在直播"
+                title="收藏中有房间正在直播"
+              />
+            )}
             {favorites.length > 0 && <span className="nav-count">{favorites.length}</span>}
           </button>
           <button
