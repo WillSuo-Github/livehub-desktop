@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { app } from "electron";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { mapWithConcurrency } from "./platform-http";
 
 export interface DouyinRoomData {
   id: string;
@@ -10,6 +9,7 @@ export interface DouyinRoomData {
   title: string;
   anchor: string;
   category: string;
+  categoryId?: string;
   viewers: number;
   viewerLabel: string;
   cover: string;
@@ -26,25 +26,8 @@ export interface DouyinListResult {
   failedCategories?: Array<{ id: string; name: string; error: string }>;
   partial: boolean;
   source: string;
-}
-
-interface DouyinCategoryData {
-  id: string;
-  name: string;
-}
-
-interface DouyinCategoriesResult {
-  categories: DouyinCategoryData[];
-}
-
-interface DouyinRoomsResult {
-  rooms: DouyinRoomData[];
-}
-
-interface FeaturedCategoryResult {
-  category: DouyinCategoryData;
-  rooms: DouyinRoomData[];
-  failure?: { id: string; name: string; error: string };
+  complete?: boolean;
+  confirmedAbove?: number;
 }
 
 interface ProcessResult {
@@ -52,7 +35,8 @@ interface ProcessResult {
   stderr: string;
 }
 
-const featuredCategoryLimit = 8;
+// Leaf categories with the strongest rooms in the last full sync join the overview pages in each quick refresh.
+const hotCategoryLimit = 24;
 
 function runProcess(
   command: string,
@@ -112,46 +96,21 @@ function runProcess(
 export class DouyinAdapter {
   private helperPath: string | null = null;
   private helperBuild: Promise<string> | null = null;
+  private hotCategoryIds: string[] = [];
 
   async listFeaturedRooms(): Promise<DouyinListResult> {
-    const categoryResult = await this.invoke<DouyinCategoriesResult>(["categories"]);
-    const categories = categoryResult.categories.slice(0, featuredCategoryLimit);
-    const results = await mapWithConcurrency(categories, 2, async (category): Promise<FeaturedCategoryResult> => {
-      try {
-        const result = await this.invoke<DouyinRoomsResult>([
-          "rooms",
-          "--category",
-          category.id,
-          "--name",
-          category.name,
-        ]);
-        return { category, rooms: result.rooms };
-      } catch (error) {
-        return {
-          category,
-          rooms: [],
-          failure: {
-            id: category.id,
-            name: category.name,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        };
-      }
-    });
-    const failedCategories = results.flatMap((result) => result.failure ? [result.failure] : []);
+    const args = ["featured", "--workers", "4"];
+    if (this.hotCategoryIds.length > 0) {
+      args.push("--extra", this.hotCategoryIds.join(","));
+    }
 
-    return {
-      rooms: dedupeRooms(results.flatMap((result) => result.rooms)),
-      categoryCount: categories.length,
-      successfulCategories: categories.length - failedCategories.length,
-      failedCategories,
-      partial: failedCategories.length > 0,
-      source: "douyin-featured-categories",
-    };
+    return this.invoke<DouyinListResult>(args, 75_000);
   }
 
   async listRooms(): Promise<DouyinListResult> {
-    return this.invoke<DouyinListResult>(["rooms-all", "--workers", "4"], 180_000);
+    const result = await this.invoke<DouyinListResult>(["rooms-all", "--workers", "4"], 180_000);
+    this.hotCategoryIds = rankHotCategories(result.rooms);
+    return result;
   }
 
   private async invoke<T>(args: string[], timeoutMs = 30_000): Promise<T> {
@@ -219,7 +178,21 @@ function getHelperBinaryPath(): string {
   return path.join(getHelperDirectory(), "bin", binaryName);
 }
 
-function dedupeRooms(rooms: DouyinRoomData[]): DouyinRoomData[] {
-  return Array.from(new Map(rooms.map((room) => [room.id, room])).values())
-    .sort((left, right) => right.viewers - left.viewers);
+function rankHotCategories(rooms: DouyinRoomData[]): string[] {
+  const strongestRoomByCategory = new Map<string, number>();
+  for (const room of rooms) {
+    if (!room.categoryId) {
+      continue;
+    }
+
+    strongestRoomByCategory.set(
+      room.categoryId,
+      Math.max(strongestRoomByCategory.get(room.categoryId) ?? 0, room.viewers),
+    );
+  }
+
+  return Array.from(strongestRoomByCategory)
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, hotCategoryLimit)
+    .map(([categoryId]) => categoryId);
 }

@@ -23,8 +23,15 @@ const platformLabels: Record<PlatformId, string> = {
 };
 const featuredRefreshIntervalMs = 5 * 60 * 1000;
 const fullRefreshIntervalMs = 60 * 60 * 1000;
+// A room that no refresh has seen for this long is treated as ended; the hourly full sync normally confirms it first.
+const retainedRoomMaxAgeMs = 2 * fullRefreshIntervalMs;
 
 type RoomsUpdateListener = (update: PlatformRoomsUpdate) => void;
+
+interface ReconcileOptions {
+  replace: boolean;
+  confirmedAbove?: number;
+}
 
 export class PlatformService {
   private readonly adapters = {
@@ -39,6 +46,13 @@ export class PlatformService {
     douyu: [],
     huya: [],
     bilibili: [],
+  };
+
+  private readonly roomSeenAt: Record<PlatformId, Map<string, number>> = {
+    douyin: new Map(),
+    douyu: new Map(),
+    huya: new Map(),
+    bilibili: new Map(),
   };
 
   private readonly statuses: Record<PlatformId, PlatformIntegrationStatus> = {
@@ -265,13 +279,18 @@ export class PlatformService {
       const coverage = result.partial
         ? `，${failedCategoryCount} 个分类失败`
         : "，分类全部成功";
+      // Quick refreshes only sample the hottest rooms, so they update the cached list instead of replacing it.
+      const nextRooms = this.reconcileRooms(platform, rooms, {
+        replace: !result.partial && (mode === "full" || result.complete === true),
+        confirmedAbove: result.confirmedAbove,
+      });
 
       this.statuses[platform] = {
         state: "connected",
         message: mode === "featured"
-          ? `已发现 ${rooms.length} 个热门房间${coverage}`
-          : `完整同步 ${rooms.length} 个真实房间${coverage}`,
-        roomCount: rooms.length,
+          ? `热门已刷新 ${rooms.length} 个，当前共 ${nextRooms.length} 个房间${coverage}`
+          : `完整同步 ${nextRooms.length} 个真实房间${coverage}`,
+        roomCount: nextRooms.length,
         categoryCount: result.categoryCount,
         successfulCategories: result.successfulCategories,
         failedCategoryCount,
@@ -281,9 +300,9 @@ export class PlatformService {
         lastUpdatedAt: new Date().toISOString(),
         source: result.source,
       };
-      this.lastRooms[platform] = rooms;
-      this.emitUpdate(platform, rooms, this.statuses[platform], mode, trigger);
-      return rooms;
+      this.lastRooms[platform] = nextRooms;
+      this.emitUpdate(platform, nextRooms, this.statuses[platform], mode, trigger);
+      return nextRooms;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const retainedRooms = this.lastRooms[platform];
@@ -300,6 +319,39 @@ export class PlatformService {
       this.emitUpdate(platform, retainedRooms, this.statuses[platform], mode, trigger);
       return retainedRooms;
     }
+  }
+
+  private reconcileRooms(platform: PlatformId, freshRooms: LiveRoom[], options: ReconcileOptions): LiveRoom[] {
+    const now = Date.now();
+    const seenAt = this.roomSeenAt[platform];
+    if (options.replace) {
+      seenAt.clear();
+      for (const room of freshRooms) {
+        seenAt.set(room.id, now);
+      }
+      return freshRooms;
+    }
+
+    const freshIds = new Set(freshRooms.map((room) => room.id));
+    const retainedRooms = this.lastRooms[platform].filter((room) => {
+      if (freshIds.has(room.id) || now - (seenAt.get(room.id) ?? 0) > retainedRoomMaxAgeMs) {
+        return false;
+      }
+
+      // The result vouches for every live room above this value, so a stronger room missing from it has ended.
+      return options.confirmedAbove === undefined || room.viewers <= options.confirmedAbove;
+    });
+    const retainedIds = new Set(retainedRooms.map((room) => room.id));
+    for (const id of Array.from(seenAt.keys())) {
+      if (!retainedIds.has(id)) {
+        seenAt.delete(id);
+      }
+    }
+    for (const room of freshRooms) {
+      seenAt.set(room.id, now);
+    }
+
+    return [...freshRooms, ...retainedRooms].sort((left, right) => right.viewers - left.viewers);
   }
 
   private emitUpdate(

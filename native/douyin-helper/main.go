@@ -121,6 +121,7 @@ type rawRoom struct {
 
 type rawCategoryRoom struct {
 	Room      rawRoom `json:"room"`
+	TagName   string  `json:"tag_name"`
 	WebRID    string  `json:"web_rid"`
 	StreamSrc string  `json:"streamSrc"`
 	Cover     string  `json:"cover"`
@@ -143,6 +144,15 @@ type categoryResult struct {
 	Error    error
 }
 
+// categoryTree separates leaf categories from overview partitions. Overview pages
+// are the top-level partitions plus every grouping partition above the leaves;
+// Douyin fills them with the strongest rooms across their children.
+type categoryTree struct {
+	Leaves       []categoryOutput
+	Overviews    []categoryOutput
+	LeafIDByName map[string]string
+}
+
 type httpStatusError struct {
 	StatusCode int
 	CategoryID string
@@ -154,12 +164,15 @@ func (err *httpStatusError) Error() string {
 
 func main() {
 	if len(os.Args) < 2 {
-		fail("expected a command: categories, rooms, or rooms-all")
+		fail("expected a command: categories, rooms, featured, or rooms-all")
 	}
 
 	timeout := 30 * time.Second
-	if os.Args[1] == "rooms-all" {
+	switch os.Args[1] {
+	case "rooms-all":
 		timeout = 2 * time.Minute
+	case "featured":
+		timeout = time.Minute
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -169,6 +182,8 @@ func main() {
 		getCategories(ctx)
 	case "rooms":
 		getRooms(ctx, os.Args[2:])
+	case "featured":
+		getFeaturedRooms(ctx, os.Args[2:])
 	case "rooms-all":
 		getAllRooms(ctx, os.Args[2:])
 	default:
@@ -197,12 +212,46 @@ func getRooms(ctx context.Context, args []string) {
 		fail("missing --category")
 	}
 
-	rooms, err := fetchRoomsByCategory(ctx, categoryOutput{ID: *categoryID, Name: *categoryName})
+	rooms, err := fetchRoomsByCategory(ctx, categoryOutput{ID: *categoryID, Name: *categoryName}, nil)
 	if err != nil {
 		fail(err.Error())
 	}
 
 	writeJSON(roomsResponse{Rooms: rooms})
+}
+
+// getFeaturedRooms reads every overview partition plus the requested hot leaf
+// categories, so the quick refresh covers the strongest rooms of each partition.
+func getFeaturedRooms(ctx context.Context, args []string) {
+	flags := flag.NewFlagSet("featured", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	workers := flags.Int("workers", defaultWorkers, "Concurrent category requests")
+	extra := flags.String("extra", "", "Comma-separated leaf category ids to include")
+	if err := flags.Parse(args); err != nil {
+		fail(err.Error())
+	}
+	if *workers < 1 || *workers > 16 {
+		fail("workers must be between 1 and 16")
+	}
+
+	tree, err := fetchCategoryTree(ctx)
+	if err != nil {
+		fail(err.Error())
+	}
+
+	leavesByID := make(map[string]categoryOutput, len(tree.Leaves))
+	for _, leaf := range tree.Leaves {
+		leavesByID[leaf.ID] = leaf
+	}
+	extraLeaves := make([]categoryOutput, 0)
+	for _, id := range strings.Split(*extra, ",") {
+		if leaf, exists := leavesByID[strings.TrimSpace(id)]; exists {
+			extraLeaves = append(extraLeaves, leaf)
+		}
+	}
+
+	pages := uniqueCategories(tree.Overviews, extraLeaves)
+	writeJSON(collectRooms(ctx, pages, *workers, tree.LeafIDByName, "douyin-featured-partitions"))
 }
 
 func getAllRooms(ctx context.Context, args []string) {
@@ -216,21 +265,33 @@ func getAllRooms(ctx context.Context, args []string) {
 		fail("workers must be between 1 and 16")
 	}
 
-	categories, err := fetchLeafCategories(ctx)
+	tree, err := fetchCategoryTree(ctx)
 	if err != nil {
 		fail(err.Error())
 	}
 
-	results := make(chan categoryResult, *workers)
+	// Overview pages go first so their strongest rooms survive a timeout.
+	pages := uniqueCategories(tree.Overviews, tree.Leaves)
+	writeJSON(collectRooms(ctx, pages, *workers, tree.LeafIDByName, "douyin-category-aggregation"))
+}
+
+func collectRooms(
+	ctx context.Context,
+	categories []categoryOutput,
+	workers int,
+	leafIDByName map[string]string,
+	source string,
+) allRoomsResponse {
+	results := make(chan categoryResult, workers)
 	jobs := make(chan categoryOutput)
 	var waitGroup sync.WaitGroup
 
-	for i := 0; i < *workers; i++ {
+	for i := 0; i < workers; i++ {
 		waitGroup.Add(1)
 		go func() {
 			defer waitGroup.Done()
 			for category := range jobs {
-				rooms, fetchErr := fetchRoomsByCategory(ctx, category)
+				rooms, fetchErr := fetchRoomsByCategory(ctx, category, leafIDByName)
 				result := categoryResult{Category: category, Rooms: rooms, Error: fetchErr}
 				select {
 				case results <- result:
@@ -256,6 +317,10 @@ func getAllRooms(ctx context.Context, args []string) {
 		close(results)
 	}()
 
+	leafIDs := make(map[string]struct{}, len(leafIDByName))
+	for _, leafID := range leafIDByName {
+		leafIDs[leafID] = struct{}{}
+	}
 	roomsByID := make(map[string]roomOutput)
 	failedCategories := make([]categoryFailure, 0)
 	successfulCategories := 0
@@ -271,9 +336,11 @@ func getAllRooms(ctx context.Context, args []string) {
 		successfulCategories++
 		for _, room := range result.Rooms {
 			current, exists := roomsByID[room.ID]
-			if !exists || room.Viewers > current.Viewers {
+			if !exists {
 				roomsByID[room.ID] = room
+				continue
 			}
+			roomsByID[room.ID] = mergeRoomCopies(current, room, leafIDs)
 		}
 	}
 
@@ -289,41 +356,80 @@ func getAllRooms(ctx context.Context, args []string) {
 	})
 
 	partial := len(failedCategories) > 0 || ctx.Err() != nil
-	writeJSON(allRoomsResponse{
+	return allRoomsResponse{
 		Rooms:                rooms,
 		CategoryCount:        len(categories),
 		SuccessfulCategories: successfulCategories,
 		FailedCategories:     failedCategories,
 		Partial:              partial,
-		Source:               "douyin-category-aggregation",
-	})
+		Source:               source,
+	}
+}
+
+// mergeRoomCopies keeps the freshest-looking audience value and the most specific
+// category label when the same room appears on an overview page and a leaf page.
+func mergeRoomCopies(current roomOutput, next roomOutput, leafIDs map[string]struct{}) roomOutput {
+	merged := current
+	if next.Viewers > current.Viewers {
+		merged = next
+	}
+	_, currentIsLeaf := leafIDs[current.CategoryID]
+	_, nextIsLeaf := leafIDs[next.CategoryID]
+	if !currentIsLeaf && nextIsLeaf {
+		merged.Category = next.Category
+		merged.CategoryID = next.CategoryID
+	} else if currentIsLeaf && !nextIsLeaf {
+		merged.Category = current.Category
+		merged.CategoryID = current.CategoryID
+	}
+	return merged
 }
 
 func fetchLeafCategories(ctx context.Context) ([]categoryOutput, error) {
-	var page rawCategoriesPage
-	if err := fetchPageDataWithRetry(ctx, categoryRootID, "categoryData", &page); err != nil {
+	tree, err := fetchCategoryTree(ctx)
+	if err != nil {
 		return nil, err
 	}
-
-	categories := make([]categoryOutput, 0)
-	flattenLeafCategories(page.CategoryData, nil, &categories)
-	if len(categories) == 0 {
-		return nil, errors.New("Douyin returned no live categories")
-	}
-
-	seen := make(map[string]struct{}, len(categories))
-	unique := categories[:0]
-	for _, category := range categories {
-		if _, exists := seen[category.ID]; exists {
-			continue
-		}
-		seen[category.ID] = struct{}{}
-		unique = append(unique, category)
-	}
-	return unique, nil
+	return tree.Leaves, nil
 }
 
-func fetchRoomsByCategory(ctx context.Context, category categoryOutput) ([]roomOutput, error) {
+func fetchCategoryTree(ctx context.Context) (categoryTree, error) {
+	var page rawCategoriesPage
+	if err := fetchPageDataWithRetry(ctx, categoryRootID, "categoryData", &page); err != nil {
+		return categoryTree{}, err
+	}
+
+	tree := categoryTree{LeafIDByName: make(map[string]string)}
+	collectCategories(page.CategoryData, nil, &tree)
+	tree.Leaves = uniqueCategories(tree.Leaves)
+	tree.Overviews = uniqueCategories(tree.Overviews)
+	if len(tree.Leaves) == 0 {
+		return categoryTree{}, errors.New("Douyin returned no live categories")
+	}
+	for _, leaf := range tree.Leaves {
+		if _, exists := tree.LeafIDByName[leaf.Name]; !exists {
+			tree.LeafIDByName[leaf.Name] = leaf.ID
+		}
+	}
+	return tree, nil
+}
+
+func uniqueCategories(groups ...[]categoryOutput) []categoryOutput {
+	seen := make(map[string]struct{})
+	unique := make([]categoryOutput, 0)
+	for _, group := range groups {
+		for _, category := range group {
+			if _, exists := seen[category.ID]; exists {
+				continue
+			}
+			seen[category.ID] = struct{}{}
+			unique = append(unique, category)
+		}
+	}
+	return unique
+}
+
+func fetchRoomsByCategory(ctx context.Context, category categoryOutput, leafIDByName map[string]string) ([]roomOutput, error) {
 	var page rawCategoryPage
 	if err := fetchPageDataWithRetry(ctx, category.ID, "roomsData", &page); err != nil {
 		return nil, err
@@ -331,25 +437,28 @@ func fetchRoomsByCategory(ctx context.Context, category categoryOutput) ([]roomO
 
 	rooms := make([]roomOutput, 0, len(page.RoomsData.Data))
 	for _, raw := range page.RoomsData.Data {
-		rooms = append(rooms, mapRoom(raw, category))
+		rooms = append(rooms, mapRoom(raw, category, leafIDByName))
 	}
 	return rooms, nil
 }
 
-func flattenLeafCategories(categories []rawCategory, parentIDs []string, output *[]categoryOutput) {
+func collectCategories(categories []rawCategory, parentIDs []string, tree *categoryTree) {
 	for _, category := range categories {
 		shortID := fmt.Sprintf("%d_%s", category.Partition.Type, category.Partition.IDStr)
 		fullIDs := append(append([]string{}, parentIDs...), shortID)
-		fullID := strings.Join(fullIDs, "_")
+		output := categoryOutput{ID: strings.Join(fullIDs, "_"), Name: category.Partition.Title}
+		if len(parentIDs) == 0 || len(category.SubPartition) > 0 {
+			tree.Overviews = append(tree.Overviews, output)
+		}
 		if len(category.SubPartition) == 0 {
-			*output = append(*output, categoryOutput{ID: fullID, Name: category.Partition.Title})
+			tree.Leaves = append(tree.Leaves, output)
 			continue
 		}
-		flattenLeafCategories(category.SubPartition, fullIDs, output)
+		collectCategories(category.SubPartition, fullIDs, tree)
 	}
 }
 
-func mapRoom(raw rawCategoryRoom, category categoryOutput) roomOutput {
+func mapRoom(raw rawCategoryRoom, category categoryOutput, leafIDByName map[string]string) roomOutput {
 	viewerLabel := raw.Room.Stats.UserCountStr
 	if raw.Room.RoomViewStats.DisplayValue > 0 {
 		viewerLabel = strconv.Itoa(raw.Room.RoomViewStats.DisplayValue)
@@ -365,13 +474,23 @@ func mapRoom(raw rawCategoryRoom, category categoryOutput) roomOutput {
 		roomID = raw.WebRID
 	}
 
+	// Overview pages mix rooms from many leaves; tag_name names the room's own leaf.
+	categoryName := category.Name
+	categoryID := category.ID
+	if tagName := strings.TrimSpace(raw.TagName); tagName != "" && tagName != category.Name {
+		categoryName = tagName
+		if leafID, exists := leafIDByName[tagName]; exists {
+			categoryID = leafID
+		}
+	}
+
 	return roomOutput{
 		ID:            roomID,
 		DouyinID:      raw.WebRID,
 		Title:         raw.Room.Title,
 		Anchor:        raw.Room.Owner.Nickname,
-		Category:      category.Name,
-		CategoryID:    category.ID,
+		Category:      categoryName,
+		CategoryID:    categoryID,
 		Viewers:       parseViewerCount(viewerLabel),
 		ViewerLabel:   viewerLabel,
 		Cover:         cover,

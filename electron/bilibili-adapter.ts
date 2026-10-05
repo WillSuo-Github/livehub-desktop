@@ -16,7 +16,8 @@ const maxPagesPerArea = 100;
 const allSitePageSize = 99;
 const maxAllSitePages = 1_000;
 const maxPageFailures = 8;
-const featuredPageLimit = 3;
+// The all-site list drifts out of order after the first pages, so each parent area's first page backs it up.
+const featuredPageLimit = 5;
 
 interface BilibiliAreaResponse {
   code: number;
@@ -69,33 +70,54 @@ interface AreaResult {
   failure?: PlatformCategoryFailure;
 }
 
+type FeaturedSource =
+  | { kind: "site"; page: number }
+  | { kind: "parent"; id: number; name: string };
+
 export class BilibiliAdapter {
   async listFeaturedRooms(): Promise<PlatformListResult> {
-    const pages = Array.from({ length: featuredPageLimit }, (_, index) => index + 1);
-    const pageResults = await mapWithConcurrency(pages, 2, async (page) => {
+    const parentAreas = await this.listParentAreas().catch(() => []);
+    const sources: FeaturedSource[] = [
+      ...Array.from({ length: featuredPageLimit }, (_, index) => ({ kind: "site" as const, page: index + 1 })),
+      ...parentAreas.map((area) => ({ kind: "parent" as const, id: area.id, name: area.name })),
+    ];
+    const results = await mapWithConcurrency(sources, 3, async (source) => {
       try {
-        return { page, rooms: (await this.fetchAllSitePage(page)).rooms };
+        const rooms = source.kind === "site"
+          ? (await this.fetchAllSitePage(source.page)).rooms
+          : (await this.fetchAllSitePage(1, source.id)).rooms;
+        return { source, rooms };
       } catch (error) {
         return {
-          page,
-          rooms: [],
+          source,
+          rooms: [] as PlatformRoomData[],
           failure: {
-            id: `page-${page}`,
-            name: `热门第 ${page} 页`,
+            id: source.kind === "site" ? `page-${source.page}` : `parent-${source.id}`,
+            name: source.kind === "site" ? `热门第 ${source.page} 页` : `${source.name}分区热门`,
             error: error instanceof Error ? error.message : String(error),
           },
         };
       }
     });
-    const failedPages = pageResults.flatMap((result) => result.failure ? [result.failure] : []);
+    const failedSources = results.flatMap((result) => result.failure ? [result.failure] : []);
+    if (failedSources.length === sources.length) {
+      throw new Error(failedSources[0].error);
+    }
+
+    const siteResults = results.filter((result) => result.source.kind === "site");
+    const lastSitePage = siteResults[siteResults.length - 1];
+    const siteComplete = siteResults.every((result) => !result.failure);
 
     return {
-      rooms: dedupeRooms(pageResults.flatMap((result) => result.rooms)),
-      categoryCount: pages.length,
-      successfulCategories: pages.length - failedPages.length,
-      failedCategories: failedPages,
-      partial: failedPages.length > 0,
-      source: "bilibili-featured-pagination",
+      rooms: dedupeRooms(results.flatMap((result) => result.rooms)),
+      categoryCount: sources.length,
+      successfulCategories: sources.length - failedSources.length,
+      failedCategories: failedSources,
+      partial: failedSources.length > 0,
+      source: "bilibili-featured-site-and-areas",
+      confirmedAbove: siteComplete && lastSitePage.rooms.length > 0
+        ? Math.max(...lastSitePage.rooms.map((room) => room.viewers))
+        : undefined,
     };
   }
 
@@ -158,10 +180,10 @@ export class BilibiliAdapter {
     };
   }
 
-  private async fetchAllSitePage(page: number): Promise<{ count: number; rooms: PlatformRoomData[] }> {
+  private async fetchAllSitePage(page: number, parentAreaId = 0): Promise<{ count: number; rooms: PlatformRoomData[] }> {
     const params = new URLSearchParams({
       platform: "web",
-      parent_area_id: "0",
+      parent_area_id: String(parentAreaId),
       cate_id: "0",
       area_id: "0",
       sort_type: "online",
@@ -196,12 +218,7 @@ export class BilibiliAdapter {
   }
 
   private async listAreas(): Promise<BilibiliArea[]> {
-    const response = await fetchJson<BilibiliAreaResponse>(areaListUrl, requestHeaders);
-    if (response.code !== 0 || !response.data) {
-      throw new Error(response.message || "Bilibili area list request failed");
-    }
-
-    const areas = response.data.flatMap((parent) => {
+    const areas = (await this.fetchAreaTree()).flatMap((parent) => {
       const children = parent.list ?? [];
       if (children.length === 0) {
         return [{ id: parent.id, name: parent.name, parentName: parent.name }];
@@ -215,6 +232,19 @@ export class BilibiliAdapter {
     });
 
     return Array.from(new Map(areas.map((area) => [area.id, area])).values());
+  }
+
+  private async listParentAreas(): Promise<Array<{ id: number; name: string }>> {
+    return (await this.fetchAreaTree()).map((parent) => ({ id: parent.id, name: parent.name }));
+  }
+
+  private async fetchAreaTree(): Promise<NonNullable<BilibiliAreaResponse["data"]>> {
+    const response = await fetchJson<BilibiliAreaResponse>(areaListUrl, requestHeaders);
+    if (response.code !== 0 || !response.data) {
+      throw new Error(response.message || "Bilibili area list request failed");
+    }
+
+    return response.data;
   }
 
   private async listAreaRooms(area: BilibiliArea): Promise<AreaResult> {

@@ -23,4 +23,8 @@ export interface PlatformListResult {
   failedCategories: PlatformCategoryFailure[];
   partial: boolean;
   source: string;
+  /** The result lists every live room the platform exposes, so it can replace the cached list. */
+  complete?: boolean;
+  /** Every live room whose metric is above this value is expected to appear in the result. */
+  confirmedAbove?: number;
 }

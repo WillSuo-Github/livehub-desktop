@@ -12,7 +12,9 @@ const requestHeaders = {
 };
 const pageSize = 120;
 const maxPagesPerCategory = 200;
-const featuredCategoryLimit = 8;
+// The all-live list is ordered by popularity apart from small swaps near the top; five pages cover its strongest rooms.
+const featuredPageLimit = 5;
+const allLiveCategory: HuyaCategory = { id: "all", name: "直播" };
 
 interface HuyaRoom {
   gameFullName?: string;
@@ -53,17 +55,34 @@ interface CategoryResult {
 
 export class HuyaAdapter {
   async listFeaturedRooms(): Promise<PlatformListResult> {
-    const categories = (await this.listCategories()).slice(0, featuredCategoryLimit);
-    const results = await mapWithConcurrency(categories, 2, (category) => this.listCategoryRooms(category, 1));
-    const failedCategories = results.flatMap((result) => result.failure ? [result.failure] : []);
+    const pages = Array.from({ length: featuredPageLimit }, (_, index) => index + 1);
+    const results = await mapWithConcurrency(pages, 2, async (page) => {
+      try {
+        return { rooms: await this.fetchAllLivePage(page) };
+      } catch (error) {
+        return {
+          rooms: [] as PlatformRoomData[],
+          failure: {
+            id: `page-${page}`,
+            name: `热门第 ${page} 页`,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        };
+      }
+    });
+    const failedPages = results.flatMap((result) => result.failure ? [result.failure] : []);
+    if (failedPages.length === pages.length) {
+      throw new Error(failedPages[0].error);
+    }
 
     return {
       rooms: dedupeRooms(results.flatMap((result) => result.rooms)),
-      categoryCount: categories.length,
-      successfulCategories: categories.length - failedCategories.length,
-      failedCategories,
-      partial: failedCategories.length > 0,
-      source: "huya-featured-games",
+      categoryCount: pages.length,
+      successfulCategories: pages.length - failedPages.length,
+      failedCategories: failedPages,
+      partial: failedPages.length > 0,
+      source: "huya-all-live-pagination",
+      confirmedAbove: failedPages.length === 0 ? strongestViewers(results[results.length - 1].rooms) : undefined,
     };
   }
 
@@ -99,6 +118,21 @@ export class HuyaAdapter {
     }
 
     return Array.from(ids, (id) => ({ id, name: `分类 ${id}` }));
+  }
+
+  private async fetchAllLivePage(page: number): Promise<PlatformRoomData[]> {
+    const params = new URLSearchParams({
+      m: "LiveList",
+      do: "getLiveListByPage",
+      tagAll: "0",
+      page: String(page),
+    });
+    const response = await fetchJson<HuyaListResponse>(`${listUrl}?${params}`, requestHeaders);
+    if (response.status !== 200 || !response.data) {
+      throw new Error(response.message || `Huya live page ${page} request failed`);
+    }
+
+    return (response.data.datas ?? []).map((room) => mapRoom(room, allLiveCategory));
   }
 
   private async listCategoryRooms(
@@ -168,4 +202,8 @@ function mapRoom(
 function dedupeRooms(rooms: PlatformRoomData[]): PlatformRoomData[] {
   return Array.from(new Map(rooms.map((room) => [room.id, room])).values())
     .sort((left, right) => right.viewers - left.viewers);
+}
+
+function strongestViewers(rooms: PlatformRoomData[]): number | undefined {
+  return rooms.length > 0 ? Math.max(...rooms.map((room) => room.viewers)) : undefined;
 }

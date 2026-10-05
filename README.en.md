@@ -25,6 +25,7 @@ The source is cross-platform. The GitHub Actions release workflow builds macOS a
 - Online-audience sorting when every room in the current filtered results reports a comparable online count, such as a Douyin-only view.
 - Featured rooms appear first while full platform aggregation continues in the background.
 - Featured-room refreshes five minutes after each completed refresh.
+- Featured refreshes read each platform's site-wide popular lists, Douyin's category overview pages, and the hottest categories from the last full sync. They update those rooms and keep the rest of the synchronized list.
 - Full synchronization on startup by default, followed by another sync one hour after each completed cycle.
 - A background full-sync setting that can be paused while featured-room refreshes and manual sync remain available.
 - No demo rooms are mixed into production results.
