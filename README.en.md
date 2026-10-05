@@ -1,0 +1,181 @@
+# LiveHub Desktop
+
+[简体中文](README.md) | **English**
+
+LiveHub is a cross-platform Electron desktop client for discovering live rooms from Douyin, Douyu, Huya, and Bilibili in one place, then resolving direct streams for playback in a locally installed media player.
+
+The project is designed around one rule: the **使用播放器** (Use Player) action always tries the selected media player and never silently falls back to a web page. Opening the platform page is a separate, explicit action.
+
+## Current release
+
+- Version: manually maintained in `package.json`; the release workflow never changes it
+- Published build: macOS Apple Silicon (`arm64`) and Windows x64
+- Release page: <https://github.com/WillSuo-Github/livehub-desktop/releases/latest>
+
+The source is cross-platform. The GitHub Actions release workflow builds macOS arm64 and Windows x64 packages for every pushed `vX.Y.Z` tag. Linux packaging remains available from the same Electron Builder configuration on a Linux runner.
+
+## Features
+
+- One live-room directory for Douyin, Douyu, Huya, and Bilibili.
+- Single-select platform switching, with an all-platforms view.
+- Single-select category filtering, including platform + category combinations.
+- Search by room title, anchor, category, and tags.
+- Favorites stored locally, with a sidebar green dot when a synchronized favorite room is live.
+- Default popularity sorting that normalizes each platform's own ranking before merging platforms.
+- Online-audience sorting when every room in the current filtered results reports a comparable online count, such as a Douyin-only view.
+- Featured rooms appear first while full platform aggregation continues in the background.
+- Featured-room refreshes five minutes after each completed refresh.
+- Full synchronization on startup by default, followed by another sync one hour after each completed cycle.
+- A background full-sync setting that can be paused while featured-room refreshes and manual sync remain available.
+- No demo rooms are mixed into production results.
+- Direct-stream resolution at play time for HLS and FLV playback URLs.
+- Explicit web-opening action for users who want to visit the room page.
+- Local media-player discovery with a persistent default player setting.
+- Background GitHub Release update checks with download-and-restart installation.
+
+## Download and install
+
+Download the latest installer from the [GitHub Releases page](https://github.com/WillSuo-Github/livehub-desktop/releases/latest).
+
+### macOS
+
+The published package targets Apple Silicon (`arm64`). Download the `.dmg`, drag LiveHub to Applications, and launch it from there. The automatic release workflow requires Developer ID signing and Apple notarization before it publishes a macOS release.
+
+The `.zip` artifact is also available for users who prefer a portable application bundle.
+
+### Windows
+
+Download the Windows `.exe` installer from the GitHub Releases page. The `.zip` artifact is also available for portable use.
+Windows packages are intentionally unsigned, so SmartScreen may show a warning when they are first downloaded or launched.
+
+### Linux
+
+Linux packaging is supported by the project configuration, but it is not included in the automatic release workflow yet. Build it on a Linux runner with `npm run package`.
+
+## Using LiveHub
+
+1. Launch LiveHub and wait for the featured rooms to appear.
+2. Choose a platform to switch to it, or select **全部平台** (All Platforms) to show every platform.
+3. Select one category, or clear the category filter to show every category.
+4. Use the search box or sorting control to narrow the room list.
+5. Select a room card to open its detail panel.
+6. Choose a detected player and click **使用播放器** (Use Player) to try to resolve the latest direct stream and launch it.
+7. Click **使用网页打开直播间** (Use Web) only when you explicitly want to open the platform page in the system browser.
+
+### Automatic updates
+
+Packaged builds check the public GitHub Releases feed after launch. When a newer compatible release is found, LiveHub downloads it in the background without interrupting playback. The Settings view shows the download progress and provides a **重启更新** (Restart to update) action after the download completes. Quitting the app after an update has finished downloading also installs it automatically. On macOS, closing the main window does not quit the app.
+
+### Player discovery
+
+LiveHub scans common local installations of:
+
+- Vunio
+- IINA
+- mpv
+- VLC
+- Celluloid
+- PotPlayer
+- ffplay
+
+Only players found on the current machine are shown. Selecting a player beside the play button or in Settings updates the persisted default. Vunio is opened through its `vunio://play` URL scheme; the other players receive the resolved stream URL directly.
+
+macOS builds also show a permanent Vunio action next to the player picker and in Settings. Clicking it rescans the machine: when Vunio is installed it becomes the default player, and when it is missing LiveHub opens <https://vunio.willsuo.com> so it can be downloaded. LiveHub currently detects Vunio and provides this dedicated action only on macOS; the action is hidden on Windows and Linux.
+
+## Data sources and limitations
+
+LiveHub uses public platform directory endpoints and adapter logic maintained in this repository. It does not require a platform login and does not use a browser window to resolve a stream.
+
+“All rooms” means all rooms exposed by the public categories and pagination endpoints at the time of refresh. It does not guarantee every room visible inside a platform's own client. Platform risk control, regional access, expired rooms, rate limits, endpoint changes, and missing public categories can all reduce coverage.
+
+Viewer metrics are not uniform across platforms:
+
+- Douyin exposes a value that is treated as an online-audience metric.
+- Bilibili's list `online`, Douyu's `ol`, and Huya's public `totalCount` are platform heat/popularity values rather than comparable viewer counts. Bilibili's value can be hundreds of thousands for a room with only a handful of high-energy viewers.
+- The default **Popularity** mode ranks rooms within each platform and merges those rankings, so raw values with different units are never compared directly.
+- **Online audience** sorting is available only when every room in the current filtered results reports a comparable online count; otherwise the control stays on Popularity.
+
+Direct stream URLs are short-lived and can stop working after a room changes quality, goes offline, or the platform rejects a request. At play time, LiveHub tries to resolve the latest URL. If resolution fails and the room data already contains a usable playback URL, it tries that existing URL. Resolution or launch failures are reported in the app; the player action does not open the web page as a fallback.
+
+The packaged application contains the native Douyin helper for the target operating system. Development builds can compile it on first use, which requires Go 1.22 or newer.
+
+## Development prerequisites
+
+- Node.js 20.x starting at 20.19, or version 22.12 or newer
+- npm 10 or newer
+- Go 1.22 or newer for Douyin helper development and packaging
+- A locally installed media player for testing playback
+
+Install dependencies and start the development app:
+
+```bash
+npm ci
+npm run dev
+```
+
+The development app uses the Vite renderer and Electron main process. The first Douyin request builds `native/douyin-helper/bin/douyin-helper` if the helper is not already present; the Windows binary is named `douyin-helper.exe`.
+
+## Validation and builds
+
+Run the normal checks:
+
+```bash
+npm run typecheck
+npm run build
+```
+
+Build the native helper and package for the current operating system:
+
+```bash
+npm run package
+```
+
+Build the macOS DMG and ZIP artifacts:
+
+```bash
+npm run package:mac
+```
+
+Artifacts are written to `release/`. The package step builds the native Douyin helper first, bundles it outside the application archive, and includes the LiveHub icon in the packaged application.
+
+### Automated GitHub releases
+
+`.github/workflows/release.yml` runs on a pushed `vX.Y.Z` tag and on manual dispatch against such a tag. It reads the version from the tagged `package.json`, builds macOS arm64 and Windows x64 packages, and publishes the installers and updater metadata to one GitHub Release. It never creates tags and never edits or commits version files.
+
+Release a version in three steps: bump `package.json` (`npm version X.Y.Z --no-git-tag-version`), manually commit and push the version change, then create and push the matching tag. The command does not create a Git commit or tag.
+
+```bash
+git tag -a vX.Y.Z -m "LiveHub X.Y.Z"
+git push origin vX.Y.Z
+```
+
+The tag name must equal `v` plus the version in `package.json` at that commit; the release job stops on a mismatch so a stale version cannot be shipped. Pushing to `main` without a tag never starts a release build.
+
+The workflow requires a valid personal-account macOS Developer ID signature and Apple notarization before publishing the macOS artifacts. Windows artifacts are intentionally unsigned and do not require Windows certificate secrets; SmartScreen warnings are expected for new Windows downloads. For macOS signing, add `MACOS_CERTIFICATE_BASE64` (a base64-encoded personal-account Developer ID Application `.p12`) and `MACOS_CERTIFICATE_PASSWORD`. For notarization, add the personal team App Store Connect API key contents as `APPLE_API_KEY`, its key ID as `APPLE_API_KEY_ID`, and that team’s issuer UUID as `APPLE_API_ISSUER`. The repository must also allow GitHub Actions to write contents so the release can be published.
+
+## Project structure
+
+```text
+electron/                 Electron main process and platform services
+native/douyin-helper/     Go helper for Douyin category and room discovery
+shared/                   Types shared by Electron and the renderer
+src/                      React renderer, filters, room cards, settings
+assets/                   Packaged application resources
+scripts/                  Build-time helper scripts
+```
+
+## Third-party notices
+
+LiveHub does not depend on DYLIVE or Streamlink at runtime. Selected parser and direct-stream resolution ideas were independently adapted from their public implementations. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source links and license notices.
+
+## License
+
+LiveHub is licensed under the GNU General Public License v3.0 only. See [LICENSE](LICENSE).
+
+## Roadmap
+
+1. Add cursor-based Douyin coverage where the public endpoint becomes stable enough to use.
+2. Add provider diagnostics and direct-stream quality selection.
+3. Add packaged Linux artifacts to the GitHub release workflow.
+4. Add player process lifecycle controls and richer playback error details.
+5. Evaluate bundled playback components where licensing and maintenance make that practical.
