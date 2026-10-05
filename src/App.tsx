@@ -149,7 +149,7 @@ function App() {
   const [activeView, setActiveView] = useState<ViewId>(() =>
     new URLSearchParams(window.location.search).get("view") === "settings" ? "settings" : "rooms",
   );
-  const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformId[]>([]);
+  const [selectedPlatform, setSelectedPlatform] = useState<PlatformFilter>("all");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categoryQuery, setCategoryQuery] = useState("");
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
@@ -256,7 +256,7 @@ function App() {
 
   useEffect(() => window.livehub.onOpenSettings(() => {
     setActiveView("settings");
-    setSelectedPlatforms([]);
+    setSelectedPlatform("all");
     setSelectedCategory(null);
     setCategoryPickerOpen(false);
   }), []);
@@ -327,7 +327,7 @@ function App() {
 
   useEffect(() => {
     setVisibleRoomCount(roomPageSize);
-  }, [activeView, query, selectedCategory, selectedPlatforms]);
+  }, [activeView, query, selectedCategory, selectedPlatform]);
 
   useEffect(() => {
     if (!categoryPickerOpen) {
@@ -373,7 +373,7 @@ function App() {
 
     return rooms.filter((room) => {
       const matchesView = activeView !== "favorites" || favorites.includes(room.id);
-      const matchesPlatform = selectedPlatforms.length === 0 || selectedPlatforms.includes(room.platform);
+      const matchesPlatform = selectedPlatform === "all" || selectedPlatform === room.platform;
       const matchesCategory = !selectedCategory || room.category === selectedCategory;
       const matchesQuery =
         !normalizedQuery ||
@@ -383,7 +383,7 @@ function App() {
 
       return matchesView && matchesPlatform && matchesCategory && matchesQuery;
     });
-  }, [activeView, favorites, query, rooms, selectedCategory, selectedPlatforms]);
+  }, [activeView, favorites, query, rooms, selectedCategory, selectedPlatform]);
 
   const categoryOptions = useMemo<CategoryOption[]>(() => {
     const optionMap = new Map<string, CategoryOption>();
@@ -391,7 +391,7 @@ function App() {
     for (const room of rooms) {
       const name = room.category.trim() || "直播";
       const current = optionMap.get(name) ?? { name, count: 0, platforms: [] };
-      if (selectedPlatforms.length === 0 || selectedPlatforms.includes(room.platform)) {
+      if (selectedPlatform === "all" || selectedPlatform === room.platform) {
         current.count += 1;
       }
       if (!current.platforms.includes(room.platform)) {
@@ -406,7 +406,7 @@ function App() {
       }
       return left.name.localeCompare(right.name, "zh-CN");
     });
-  }, [rooms, selectedPlatforms]);
+  }, [rooms, selectedPlatform]);
 
   const visibleCategoryOptions = useMemo(() => {
     const normalizedQuery = categoryQuery.trim().toLowerCase();
@@ -457,7 +457,7 @@ function App() {
       ? "四个平台实时数据"
       : `${connectedPlatformCount}/4 个平台已连接 · 显示平台原始数据`;
   const platformScopedRoomCount = rooms.filter((room) =>
-    selectedPlatforms.length === 0 || selectedPlatforms.includes(room.platform),
+    selectedPlatform === "all" || selectedPlatform === room.platform,
   ).length;
   const selectedPlayer = playerState?.players.find((player) => player.id === selectedPlayerId)
     ?? playerState?.players.find((player) => player.id === playerState.defaultPlayerId);
@@ -498,22 +498,18 @@ function App() {
     );
   };
 
-  const togglePlatform = (platform: PlatformId): void => {
-    const next = selectedPlatforms.includes(platform)
-      ? selectedPlatforms.filter((item) => item !== platform)
-      : [...selectedPlatforms, platform];
-
-    if (selectedCategory && next.length > 0) {
+  const selectPlatform = (platform: PlatformFilter): void => {
+    if (selectedCategory && platform !== "all") {
       const categoryStillAvailable = rooms.some((room) =>
-        room.category === selectedCategory && next.includes(room.platform),
+        room.category === selectedCategory && room.platform === platform,
       );
       if (!categoryStillAvailable) {
         setSelectedCategory(null);
-        setToast(`已清除分类“${selectedCategory}”：选中的平台暂无这个分类。`);
+        setToast(`已清除分类“${selectedCategory}”：这个平台暂无这个分类。`);
       }
     }
 
-    setSelectedPlatforms(next);
+    setSelectedPlatform(platform);
   };
 
   const handlePlayerChange = async (playerId: string): Promise<void> => {
@@ -708,7 +704,7 @@ function App() {
   const selectView = (view: ViewId): void => {
     setActiveView(view);
     if (view !== "rooms") {
-      setSelectedPlatforms([]);
+      setSelectedPlatform("all");
       setSelectedCategory(null);
     }
   };
@@ -767,12 +763,12 @@ function App() {
 
             return (
               <button
-                className={`platform-item ${selectedPlatforms.includes(platform) ? "selected" : ""}`}
+                className={`platform-item ${selectedPlatform === platform ? "selected" : ""}`}
                 key={platform}
-                aria-pressed={selectedPlatforms.includes(platform)}
+                aria-pressed={selectedPlatform === platform}
                 onClick={() => {
                   setActiveView("rooms");
-                  togglePlatform(platform);
+                  selectPlatform(platform);
                 }}
               >
                 <span className="platform-mini" style={{ background: meta.accent }}>
@@ -1032,22 +1028,14 @@ function App() {
                     <span className="filter-label">平台</span>
                     <div className="filter-chips">
                       {platformFilters.map((filter) => {
-                        const isActive = filter.id === "all"
-                          ? selectedPlatforms.length === 0
-                          : selectedPlatforms.includes(filter.id);
+                        const isActive = selectedPlatform === filter.id;
 
                         return (
                           <button
                             className={`filter-chip ${isActive ? "active" : ""}`}
                             key={filter.id}
                             aria-pressed={isActive}
-                            onClick={() => {
-                              if (filter.id === "all") {
-                                setSelectedPlatforms([]);
-                                return;
-                              }
-                              togglePlatform(filter.id);
-                            }}
+                            onClick={() => selectPlatform(filter.id)}
                           >
                             {filter.id !== "all" && <span className="chip-dot" style={{ background: platformMeta[filter.id].accent }} />}
                             {filter.label}
@@ -1110,9 +1098,9 @@ function App() {
                           <div className="category-option-list">
                             {visibleCategoryOptions.map((option) => {
                               const isSelected = selectedCategory === option.name;
-                              const relevantPlatforms = selectedPlatforms.length === 0
+                              const relevantPlatforms = selectedPlatform === "all"
                                 ? option.platforms
-                                : option.platforms.filter((platform) => selectedPlatforms.includes(platform));
+                                : option.platforms.filter((platform) => selectedPlatform === platform);
                               const platformLabels = relevantPlatforms
                                 .map((platform) => platformMeta[platform].short)
                                 .join(" · ") || "当前平台无直播";
@@ -1155,7 +1143,7 @@ function App() {
                     )}
                   </div>
                   <span className="filter-summary">
-                    {selectedPlatforms.length === 0 ? "全部平台" : `已选 ${selectedPlatforms.length} 个平台`}
+                    {selectedPlatform === "all" ? "全部平台" : platformMeta[selectedPlatform].label}
                   <span> · </span>
                   {filteredRooms.length.toLocaleString("zh-CN")} 个结果
                 </span>

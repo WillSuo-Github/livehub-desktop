@@ -15,7 +15,7 @@ The source is cross-platform. The GitHub Actions release workflow builds macOS a
 ## Features
 
 - One live-room directory for Douyin, Douyu, Huya, and Bilibili.
-- Multi-select platform filtering.
+- Single-select platform switching, with an all-platforms view.
 - Single-select category filtering, including platform + category combinations.
 - Search by room title, anchor, category, and tags.
 - Favorites stored locally in the renderer.
@@ -51,7 +51,7 @@ Linux packaging is supported by the project configuration, but it is not include
 ## Using LiveHub
 
 1. Launch LiveHub and wait for the featured rooms to appear.
-2. Select one or more platforms in the platform filter.
+2. Choose a platform to switch to it, or select **All Platforms** to show every platform.
 3. Select one category, or clear the category filter to show every category.
 4. Use the search box or sorting control to narrow the room list.
 5. Select a room card to open its detail panel.
