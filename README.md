@@ -125,6 +125,7 @@ npm run dev
 
 ```bash
 npm run typecheck
+npm test
 npm run build
 ```
 

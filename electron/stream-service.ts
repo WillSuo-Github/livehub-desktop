@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { resolveDouyinPlayback } from "./douyin-room";
 import {
   browserUserAgent,
   fetchJson,
@@ -111,7 +112,7 @@ export class StreamService {
   async resolve(room: LiveRoom): Promise<PlaybackUrls> {
     switch (room.platform) {
       case "douyin":
-        return room.playback ?? {};
+        return resolveDouyinPlayback(room);
       case "douyu":
         return this.resolveDouyu(room);
       case "huya":

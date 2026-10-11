@@ -122,7 +122,9 @@ export class PlayerService {
     try {
       playback = await this.streamService.resolve(room);
     } catch (error) {
-      if (!getPlayableStream(playback, player.id)) {
+      // Douyin list URLs can outlive the actual broadcast. A failed fresh
+      // lookup must not reopen a cached stream from a previous room state.
+      if (room.platform === "douyin" || !getPlayableStream(playback, player.id)) {
         return {
           ok: false,
           message: `${platformLabel(room.platform)}直连流解析失败：${shortError(error)}，未打开网页。`,
