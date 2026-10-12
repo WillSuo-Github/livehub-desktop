@@ -359,14 +359,15 @@ function App() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [selectedRoom]);
 
-  const hasLiveFavorites = useMemo(() => {
+  const liveFavoriteCount = useMemo(() => {
     if (favorites.length === 0) {
-      return false;
+      return 0;
     }
 
     const favoriteIds = new Set(favorites);
-    return rooms.some((room) => room.status === "live" && favoriteIds.has(room.id));
+    return rooms.filter((room) => room.status === "live" && favoriteIds.has(room.id)).length;
   }, [favorites, rooms]);
+  const hasLiveFavorites = liveFavoriteCount > 0;
 
   const filteredRooms = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -744,7 +745,7 @@ function App() {
                 title="收藏中有房间正在直播"
               />
             )}
-            {favorites.length > 0 && <span className="nav-count">{favorites.length}</span>}
+            {liveFavoriteCount > 0 && <span className="nav-count">{liveFavoriteCount}</span>}
           </button>
           <button
             className={`nav-item ${activeView === "settings" ? "active" : ""}`}
