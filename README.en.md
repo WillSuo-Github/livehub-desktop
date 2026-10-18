@@ -6,6 +6,24 @@ LiveHub is a cross-platform Electron desktop client for discovering live rooms f
 
 The project is designed around one rule: the **使用播放器** (Use Player) action always tries the selected media player and never silently falls back to a web page. Opening the platform page is a separate, explicit action.
 
+## Watch live streams in Vunio
+
+Pair this live catalog with [Vunio](https://vunio.willsuo.com/): add one subscription URL to browse, search and play featured live rooms directly in your media player.
+
+**Public subscription URL:**
+
+```text
+https://live-catalog-addon.open-live-catalog.workers.dev/manifest.json
+```
+
+1. Install and open [Vunio](https://vunio.willsuo.com/).
+2. Open the add menu, choose **Add Protocol**, paste the URL above and save.
+3. Open **Live Catalog**, choose a platform in **Catalog**, search by anchor or room title, then select a room and a stream option to play.
+
+The subscription runs independently on a remote service. You do not need to run LiveHub or a local subscription server, and you can share the URL with friends. It uses the Stremio protocol and also supports compatible players that handle the required live formats and request headers.
+
+Remote browsing, search and playback have been verified for **Douyin, Douyu and Huya**. Bilibili is integrated but currently unavailable because its upstream rejects requests with HTTP 412. Search covers the current featured-room index; platform availability can change.
+
 ## Current release
 
 - Version: manually maintained in `package.json`; the release workflow never changes it
@@ -99,6 +117,10 @@ Viewer metrics are not uniform across platforms:
 Direct stream URLs are short-lived and can stop working after a room changes quality, goes offline, or the platform rejects a request. At play time, LiveHub tries to resolve the latest URL. If resolution fails and the room data already contains a usable playback URL, it tries that existing URL. Resolution or launch failures are reported in the app; the player action does not open the web page as a fallback.
 
 The packaged application contains the native Douyin helper for the target operating system. Development builds can compile it on first use, which requires Go 1.22 or newer.
+
+## Local Stremio source
+
+For local development, run `npm run stremio` and import `http://127.0.0.1:11471/manifest.json` in Vunio's **Add Protocol** sheet. This separate local service reuses the desktop adapters without launching Electron. Search covers indexed featured rooms; `--full-sync` expands coverage in the background. See [local setup and validation](docs/Stremio.md).
 
 ## Development prerequisites
 

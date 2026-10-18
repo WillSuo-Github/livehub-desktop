@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { app } from "electron";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -94,6 +93,11 @@ function runProcess(
 }
 
 export class DouyinAdapter {
+  constructor(private readonly runtime: {
+    helperDirectory?: string;
+    packaged?: boolean;
+  } = {}) {}
+
   private helperPath: string | null = null;
   private helperBuild: Promise<string> | null = null;
   private hotCategoryIds: string[] = [];
@@ -116,7 +120,7 @@ export class DouyinAdapter {
   private async invoke<T>(args: string[], timeoutMs = 30_000): Promise<T> {
     const helperPath = await this.ensureHelper();
     const result = await runProcess(helperPath, args, {
-      cwd: getHelperDirectory(),
+      cwd: this.getHelperDirectory(),
       timeoutMs,
     });
 
@@ -137,13 +141,13 @@ export class DouyinAdapter {
       return this.helperPath;
     }
 
-    const packagedHelperPath = getHelperBinaryPath();
+    const packagedHelperPath = this.getHelperBinaryPath();
     if (existsSync(packagedHelperPath)) {
       this.helperPath = packagedHelperPath;
       return packagedHelperPath;
     }
 
-    if (app.isPackaged) {
+    if (this.runtime.packaged) {
       throw new Error("Packaged LiveHub is missing the Douyin helper binary.");
     }
 
@@ -156,8 +160,8 @@ export class DouyinAdapter {
   }
 
   private async buildHelper(): Promise<string> {
-    const helperDirectory = getHelperDirectory();
-    const helperBinaryPath = getHelperBinaryPath();
+    const helperDirectory = this.getHelperDirectory();
+    const helperBinaryPath = this.getHelperBinaryPath();
     mkdirSync(path.dirname(helperBinaryPath), { recursive: true });
     await runProcess("go", ["build", "-o", helperBinaryPath, "."], {
       cwd: helperDirectory,
@@ -165,17 +169,15 @@ export class DouyinAdapter {
     });
     return helperBinaryPath;
   }
-}
 
-function getHelperDirectory(): string {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, "native", "douyin-helper")
-    : path.resolve(__dirname, "../../native/douyin-helper");
-}
+  private getHelperDirectory(): string {
+    return this.runtime.helperDirectory ?? path.resolve(__dirname, "../../native/douyin-helper");
+  }
 
-function getHelperBinaryPath(): string {
-  const binaryName = process.platform === "win32" ? "douyin-helper.exe" : "douyin-helper";
-  return path.join(getHelperDirectory(), "bin", binaryName);
+  private getHelperBinaryPath(): string {
+    const binaryName = process.platform === "win32" ? "douyin-helper.exe" : "douyin-helper";
+    return path.join(this.getHelperDirectory(), "bin", binaryName);
+  }
 }
 
 function rankHotCategories(rooms: DouyinRoomData[]): string[] {

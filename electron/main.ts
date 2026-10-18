@@ -5,6 +5,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { PlayerService } from "./player-service";
 import { PlatformService } from "./platform-service";
+import { DouyinAdapter } from "./douyin-adapter";
 import { normalizeDanmakuKindFilter } from "../shared/danmaku";
 import { vunioSiteUrl } from "../shared/vunio";
 import type {
@@ -15,7 +16,12 @@ import type {
   UpdateStatus,
 } from "../shared/types";
 
-const service = new PlatformService();
+const service = new PlatformService(new DouyinAdapter({
+  packaged: app.isPackaged,
+  helperDirectory: app.isPackaged
+    ? path.join(process.resourcesPath, "native", "douyin-helper")
+    : undefined,
+}));
 const playerService = new PlayerService();
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 let mainWindow: BrowserWindow | null = null;

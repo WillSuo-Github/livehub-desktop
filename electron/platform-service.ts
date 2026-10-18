@@ -34,6 +34,10 @@ interface ReconcileOptions {
 }
 
 export class PlatformService {
+  constructor(douyin = new DouyinAdapter()) {
+    this.adapters.douyin = douyin;
+  }
+
   private readonly adapters = {
     douyin: new DouyinAdapter(),
     douyu: new DouyuAdapter(),
