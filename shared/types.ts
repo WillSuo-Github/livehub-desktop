@@ -147,7 +147,15 @@ export interface PlatformRoomsUpdate {
   trigger: SyncTrigger;
 }
 
+export interface FavoritesMigrationResult {
+  ids: string[];
+  migratedCount: number;
+  unresolvedCount: number;
+  mergedCount: number;
+}
+
 export interface LiveHubApi {
+  migrateFavorites(ids: string[]): Promise<FavoritesMigrationResult>;
   getRooms(platform?: PlatformId | "all", mode?: RoomsLoadMode): Promise<LiveRoom[]>;
   onRoomsUpdate(listener: (update: PlatformRoomsUpdate) => void): () => void;
   getAppInfo(): Promise<AppInfo>;

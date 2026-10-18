@@ -14,6 +14,7 @@ import type {
 } from "../shared/types";
 
 const api: LiveHubApi = {
+  migrateFavorites: (ids) => ipcRenderer.invoke("favorites:migrate", ids),
   getRooms: (
     platform: PlatformId | "all" = "all",
     mode: RoomsLoadMode = "featured",

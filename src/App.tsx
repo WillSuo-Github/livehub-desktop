@@ -11,6 +11,7 @@ import type {
 } from "../shared/types";
 import { danmakuKindLabels, danmakuKinds, defaultDanmakuKindFilter } from "../shared/danmaku";
 import { vunioPlayerId } from "../shared/vunio";
+import { favoritesBackupKey, favoritesStorageKey, getFavoriteRooms, isFavoriteRoom, parseFavoriteIds, toggleFavoriteRoom } from "../shared/favorites";
 
 type PlatformFilter = "all" | PlatformId;
 type ViewId = "rooms" | "favorites" | "settings";
@@ -154,13 +155,15 @@ function App() {
   const [categoryQuery, setCategoryQuery] = useState("");
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [favorites, setFavorites] = useState<string[]>(() => {
+  const [favoriteLoad] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("livehub:favorites") ?? "[]") as string[];
+      return { ids: parseFavoriteIds(localStorage.getItem(favoritesStorageKey)), failed: false };
     } catch {
-      return [];
+      return { ids: [] as string[], failed: true };
     }
   });
+  const [favorites, setFavorites] = useState<string[]>(favoriteLoad.ids);
+  const [favoritesReady, setFavoritesReady] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<LiveRoom | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [webOpeningId, setWebOpeningId] = useState<string | null>(null);
@@ -322,8 +325,34 @@ function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("livehub:favorites", JSON.stringify(favorites));
-  }, [favorites]);
+    let active = true;
+    if (favoriteLoad.failed) {
+      setToast("收藏数据读取失败，原始记录已保留，请勿清除应用数据。");
+      return;
+    }
+    void (async () => {
+      try {
+        const result = await window.livehub.migrateFavorites(favoriteLoad.ids);
+        if (!active) return;
+        if (JSON.stringify(result.ids) !== JSON.stringify(favoriteLoad.ids)
+          && localStorage.getItem(favoritesBackupKey) === null) {
+          localStorage.setItem(favoritesBackupKey, JSON.stringify(favoriteLoad.ids));
+        }
+        // Persist before enabling edits so a close during migration cannot undo recovery.
+        localStorage.setItem(favoritesStorageKey, JSON.stringify(result.ids));
+        setFavorites(result.ids);
+        setFavoritesReady(true);
+        if (result.unresolvedCount > 0) {
+          setToast(`有 ${result.unresolvedCount} 条旧收藏暂未恢复，记录已保留，下次启动会重试。`);
+        } else if (result.migratedCount > 0) {
+          setToast(`已恢复抖音收藏，合并 ${result.mergedCount} 条重复记录。`);
+        }
+      } catch {
+        if (active) setToast("收藏恢复失败，原始记录已保留，请重新启动应用重试。");
+      }
+    })();
+    return () => { active = false; };
+  }, [favoriteLoad]);
 
   useEffect(() => {
     setVisibleRoomCount(roomPageSize);
@@ -359,21 +388,14 @@ function App() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [selectedRoom]);
 
-  const liveFavoriteCount = useMemo(() => {
-    if (favorites.length === 0) {
-      return 0;
-    }
-
-    const favoriteIds = new Set(favorites);
-    return rooms.filter((room) => room.status === "live" && favoriteIds.has(room.id)).length;
-  }, [favorites, rooms]);
+  const favoriteRooms = useMemo(() => getFavoriteRooms(rooms, favorites), [favorites, rooms]);
+  const liveFavoriteCount = useMemo(() => favoriteRooms.filter((room) => room.status === "live").length, [favoriteRooms]);
   const hasLiveFavorites = liveFavoriteCount > 0;
 
   const filteredRooms = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return rooms.filter((room) => {
-      const matchesView = activeView !== "favorites" || favorites.includes(room.id);
+    return (activeView === "favorites" ? favoriteRooms : rooms).filter((room) => {
       const matchesPlatform = selectedPlatform === "all" || selectedPlatform === room.platform;
       const matchesCategory = !selectedCategory || room.category === selectedCategory;
       const matchesQuery =
@@ -382,9 +404,9 @@ function App() {
           value.toLowerCase().includes(normalizedQuery),
         );
 
-      return matchesView && matchesPlatform && matchesCategory && matchesQuery;
+      return matchesPlatform && matchesCategory && matchesQuery;
     });
-  }, [activeView, favorites, query, rooms, selectedCategory, selectedPlatform]);
+  }, [activeView, favoriteRooms, query, rooms, selectedCategory, selectedPlatform]);
 
   const categoryOptions = useMemo<CategoryOption[]>(() => {
     const optionMap = new Map<string, CategoryOption>();
@@ -491,12 +513,15 @@ function App() {
           ? "暂时无法检查更新，请确认网络后重试。"
           : "启动后会自动检查 GitHub Release，有新版本时后台下载。";
 
-  const toggleFavorite = (roomId: string): void => {
-    setFavorites((current) =>
-      current.includes(roomId)
-        ? current.filter((favoriteId) => favoriteId !== roomId)
-        : [...current, roomId],
-    );
+  const toggleFavorite = (room: LiveRoom): void => {
+    if (!favoritesReady) return;
+    const next = toggleFavoriteRoom(room, favorites);
+    try {
+      localStorage.setItem(favoritesStorageKey, JSON.stringify(next));
+      setFavorites(next);
+    } catch {
+      setToast("收藏保存失败，请检查磁盘空间后重试。");
+    }
   };
 
   const selectPlatform = (platform: PlatformFilter): void => {
@@ -1164,7 +1189,7 @@ function App() {
                 )}
                 {!loading && !error && visibleRooms.map((room) => {
                   const meta = platformMeta[room.platform];
-                  const isFavorite = favorites.includes(room.id);
+                  const isFavorite = isFavoriteRoom(room, favorites);
 
                     return (
                       <article
@@ -1186,9 +1211,11 @@ function App() {
                             </div>
                             <button
                               className={`favorite-button ${isFavorite ? "favorite" : ""}`}
+                              disabled={!favoritesReady}
+                              title={!favoritesReady ? "正在恢复收藏…" : undefined}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                toggleFavorite(room.id);
+                                toggleFavorite(room);
                               }}
                               aria-label={isFavorite ? "取消收藏" : "收藏直播间"}
                             >
@@ -1266,11 +1293,13 @@ function App() {
                             <h3>{selectedRoom.title}</h3>
                           </div>
                           <button
-                            className={`detail-star ${favorites.includes(selectedRoom.id) ? "favorite" : ""}`}
-                            onClick={() => toggleFavorite(selectedRoom.id)}
-                            aria-label="收藏当前直播间"
+                            className={`detail-star ${isFavoriteRoom(selectedRoom, favorites) ? "favorite" : ""}`}
+                            disabled={!favoritesReady}
+                            title={!favoritesReady ? "正在恢复收藏…" : undefined}
+                            onClick={() => toggleFavorite(selectedRoom)}
+                            aria-label={isFavoriteRoom(selectedRoom, favorites) ? "取消收藏当前直播间" : "收藏当前直播间"}
                           >
-                            {favorites.includes(selectedRoom.id) ? "★" : "☆"}
+                            {isFavoriteRoom(selectedRoom, favorites) ? "★" : "☆"}
                           </button>
                         </div>
                         <div className="detail-anchor"><span className="anchor-avatar large">{selectedRoom.anchor.slice(0, 1)}</span><span className="anchor-name">{selectedRoom.anchor}</span></div>

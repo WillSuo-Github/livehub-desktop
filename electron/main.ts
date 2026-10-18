@@ -8,6 +8,7 @@ import { PlatformService } from "./platform-service";
 import { DouyinAdapter } from "./douyin-adapter";
 import { normalizeDanmakuKindFilter } from "../shared/danmaku";
 import { vunioSiteUrl } from "../shared/vunio";
+import { migrateFavoriteIds } from "./favorites-migration";
 import type {
   DanmakuKindFilter,
   LiveRoom,
@@ -39,6 +40,7 @@ interface AppSettings {
 let appSettings: AppSettings = {};
 
 function registerIpcHandlers(): void {
+  ipcMain.handle("favorites:migrate", (_event, ids: string[]) => migrateFavoriteIds(ids));
   ipcMain.handle(
     "rooms:list",
     (_event, platform: PlatformId | "all" = "all", mode: RoomsLoadMode = "featured") =>
