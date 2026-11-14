@@ -57,6 +57,7 @@ The Douyu, Huya, and Bilibili adapters use public HTTP endpoints and category/pa
 - Douyu API reference: https://github.com/birjemin/douyuapi
 - Huya public list endpoint notes: https://cloud.tencent.com/developer/article/1856430
 - Bilibili live area API reference: https://github.com/MayIHaveK/bili-apis/blob/master/docs/live/live_area.md
+- Anchor search response formats and offline states were cross-checked against the independently maintained PureLive adapters: https://github.com/wzgrx/pure_live/tree/master/packages/live_core/lib/src/sites
 
 ## Danmaku protocol references
 

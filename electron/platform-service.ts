@@ -390,6 +390,7 @@ function mapDouyinRoom(room: DouyinRoomData): LiveRoom {
     cover: coverStyle(room.cover, "linear-gradient(135deg, #302155 0%, #7e4da6 52%, #edafd2 100%)"),
     status: room.status,
     updatedAt: "刚刚",
+    checkedAt: Date.now(),
     demo: false,
     webUrl: room.webUrl,
     playback: {
@@ -414,6 +415,7 @@ function mapPlatformRoom(room: PlatformRoomData, platform: Exclude<PlatformId, "
     cover: coverStyle(room.cover, fallbackCover(platform)),
     status: room.status,
     updatedAt: "刚刚",
+    checkedAt: Date.now(),
     demo: false,
     webUrl: room.webUrl,
   };

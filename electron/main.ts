@@ -9,6 +9,7 @@ import { DouyinAdapter } from "./douyin-adapter";
 import { normalizeDanmakuKindFilter } from "../shared/danmaku";
 import { vunioSiteUrl } from "../shared/vunio";
 import { migrateFavoriteIds } from "./favorites-migration";
+import { RoomSearchService } from "./room-search-service";
 import type {
   DanmakuKindFilter,
   LiveRoom,
@@ -24,6 +25,7 @@ const service = new PlatformService(new DouyinAdapter({
     : undefined,
 }));
 const playerService = new PlayerService();
+const roomSearchService = new RoomSearchService();
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 let mainWindow: BrowserWindow | null = null;
 let updateStatus: UpdateStatus = {
@@ -40,6 +42,8 @@ interface AppSettings {
 let appSettings: AppSettings = {};
 
 function registerIpcHandlers(): void {
+  ipcMain.handle("rooms:search", (_event, query: string, platform: PlatformId | "all", page: number) => roomSearchService.search(query, platform, page));
+  ipcMain.handle("favorites:refresh", (_event, ids: string[]) => roomSearchService.refreshFavorites(ids));
   ipcMain.handle("favorites:migrate", (_event, ids: string[]) => migrateFavoriteIds(ids));
   ipcMain.handle(
     "rooms:list",

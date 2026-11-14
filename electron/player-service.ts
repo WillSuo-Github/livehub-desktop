@@ -109,6 +109,7 @@ export class PlayerService {
   }
 
   async requestPlay(room: LiveRoom, playerId?: string): Promise<PlayerResult> {
+    if (room.status === "offline") return { ok: false, message: "主播尚未开播，可以先收藏或打开直播间网页。" };
     const players = await this.resolvePlayers();
     const state = await this.getState();
     const player = players.find((item) => item.id === (playerId ?? state.defaultPlayerId))

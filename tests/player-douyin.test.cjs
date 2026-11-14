@@ -31,6 +31,16 @@ function makeService(resolve) {
   return { service, launches };
 }
 
+test("known offline favorites never resolve or launch a cached stream", async () => {
+  let resolutions = 0;
+  const { service, launches } = makeService(async () => { resolutions += 1; return room.playback; });
+  const result = await service.requestPlay({ ...room, platform: "huya", status: "offline" });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /尚未开播/);
+  assert.equal(resolutions, 0);
+  assert.equal(launches.length, 0);
+});
+
 test("Douyin lookup failure never launches the cached list URL", async () => {
   const { service, launches } = makeService(async () => {
     throw new Error("该抖音直播间已下播");

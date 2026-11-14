@@ -14,6 +14,8 @@ import type {
 } from "../shared/types";
 
 const api: LiveHubApi = {
+  searchRooms: (query, platform = "all", page = 1) => ipcRenderer.invoke("rooms:search", query, platform, page),
+  refreshFavoriteRooms: (ids) => ipcRenderer.invoke("favorites:refresh", ids),
   migrateFavorites: (ids) => ipcRenderer.invoke("favorites:migrate", ids),
   getRooms: (
     platform: PlatformId | "all" = "all",

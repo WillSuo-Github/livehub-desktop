@@ -2,6 +2,41 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { favoriteKey, getFavoriteRooms, isFavoriteRoom, toggleFavoriteRoom, parseFavoriteIds } = require("../dist-electron/shared/favorites.js");
 const { migrateFavoriteIds, resolveLegacyDouyinFavorite } = require("../dist-electron/electron/favorites-migration.js");
+const { parseFavoriteCollection, toggleFavoriteCollection, updateFavoriteCollection } = require("../dist-electron/shared/favorites.js");
+
+const offlineAnchor = {
+  id: 'huya-688', platform: 'huya', webUrl: 'https://www.huya.com/688', title: '兄弟们', anchor: '张大仙',
+  category: '王者荣耀', tags: [], cover: '', viewers: 0, status: 'offline', updatedAt: '刚刚', checkedAt: 10,
+};
+
+test('offline favorites survive directory removal, serialization and a new launch', () => {
+  const saved = toggleFavoriteCollection({ version: 2, ids: [], rooms: [] }, offlineAnchor);
+  const absent = updateFavoriteCollection(saved, []);
+  assert.equal(getFavoriteRooms([], absent.ids, absent.rooms)[0].anchor, '张大仙');
+  const restored = parseFavoriteCollection(JSON.stringify(absent), '["other-legacy-id"]');
+  assert.deepEqual(restored.ids, ['huya-688']);
+  assert.equal(restored.rooms[0].anchor, '张大仙');
+  assert.equal(restored.rooms[0].status, 'unknown');
+  assert.equal(toggleFavoriteCollection(restored, offlineAnchor).rooms.length, 0);
+});
+
+test('a newer offline lookup wins over an old live directory; expiring stream URLs are never saved', () => {
+  const live = { ...offlineAnchor, status: 'live', checkedAt: 5, playback: { flv: { source: 'https://expired.example/' } } };
+  const initial = toggleFavoriteCollection({ version: 2, ids: [], rooms: [] }, live);
+  assert.equal(initial.rooms[0].playback, undefined);
+  const ended = updateFavoriteCollection(initial, [offlineAnchor]);
+  assert.equal(ended.rooms[0].status, 'offline');
+  assert.equal(updateFavoriteCollection(ended, [live]).rooms[0].status, 'offline');
+});
+
+test('legacy ID-only favorites remain visible while metadata is being restored; malformed v2 data is rejected', () => {
+  const legacy = parseFavoriteCollection(null, '["huya-688","bilibili-21852"]');
+  assert.equal(getFavoriteRooms([], legacy.ids, legacy.rooms).length, 2);
+  assert.equal(getFavoriteRooms([], legacy.ids)[0].status, 'unknown');
+  assert.throws(() => parseFavoriteCollection('{"version":2,"ids":null,"rooms":[]}', '[]'));
+  assert.throws(() => parseFavoriteCollection('{"version":2,"rooms":[]}', '[]'));
+  assert.throws(() => parseFavoriteCollection('{"version":2,"ids":[],"rooms":[{}]}', '[]'));
+});
 
 const room = {
   id: "douyin-7697467031960013595", platform: "douyin",

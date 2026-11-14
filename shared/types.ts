@@ -43,7 +43,7 @@ export interface DanmakuHello {
 
 export type DanmakuWireMessage = DanmakuEvent | DanmakuHello;
 
-export type RoomStatus = "live" | "offline";
+export type RoomStatus = "live" | "offline" | "unknown";
 
 export type AudienceMetric = "online" | "platform-online" | "heat";
 
@@ -59,6 +59,7 @@ export interface LiveRoom {
   cover: string;
   status: RoomStatus;
   updatedAt: string;
+  checkedAt?: number;
   demo?: boolean;
   viewerLabel?: string;
   webUrl?: string;
@@ -154,9 +155,26 @@ export interface FavoritesMigrationResult {
   mergedCount: number;
 }
 
+export type SearchPlatformId = Exclude<PlatformId, "douyin">;
+
+export interface RoomSearchPage {
+  platform: SearchPlatformId;
+  page: number;
+  rooms: LiveRoom[];
+  hasMore: boolean;
+  error?: string;
+}
+
+export interface FavoriteRoomsRefresh {
+  rooms: LiveRoom[];
+  failedIds: string[];
+}
+
 export interface LiveHubApi {
   migrateFavorites(ids: string[]): Promise<FavoritesMigrationResult>;
   getRooms(platform?: PlatformId | "all", mode?: RoomsLoadMode): Promise<LiveRoom[]>;
+  searchRooms(query: string, platform?: PlatformId | "all", page?: number): Promise<RoomSearchPage[]>;
+  refreshFavoriteRooms(ids: string[]): Promise<FavoriteRoomsRefresh>;
   onRoomsUpdate(listener: (update: PlatformRoomsUpdate) => void): () => void;
   getAppInfo(): Promise<AppInfo>;
   getBackgroundFullSyncEnabled(): Promise<boolean>;

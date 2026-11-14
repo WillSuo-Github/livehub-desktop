@@ -11,7 +11,9 @@ import type {
 } from "../shared/types";
 import { danmakuKindLabels, danmakuKinds, defaultDanmakuKindFilter } from "../shared/danmaku";
 import { vunioPlayerId } from "../shared/vunio";
-import { favoritesBackupKey, favoritesStorageKey, getFavoriteRooms, isFavoriteRoom, parseFavoriteIds, toggleFavoriteRoom } from "../shared/favorites";
+import { favoriteCollectionKey, favoritesBackupKey, favoritesStorageKey, getFavoriteRooms, isFavoriteRoom, parseFavoriteCollection, toggleFavoriteCollection, updateFavoriteCollection, type FavoriteCollection } from "../shared/favorites";
+import { matchesRoomQuery, mergeSearchRooms } from "../shared/room-search";
+import { useRoomSearch } from "./use-room-search";
 
 type PlatformFilter = "all" | PlatformId;
 type ViewId = "rooms" | "favorites" | "settings";
@@ -47,6 +49,7 @@ const formatViewers = (viewers: number): string => {
 };
 
 const displayViewers = (room: LiveRoom): string => room.viewerLabel ?? formatViewers(room.viewers);
+const roomStatusLabel = (room: LiveRoom): string => room.status === "live" ? "直播中" : room.status === "offline" ? "未开播" : "状态待确认";
 const audienceValueLabel = (room: LiveRoom): string => {
   if (room.audienceMetric === "heat") {
     return "人气";
@@ -135,7 +138,8 @@ function sortRoomsByOnlineAudience(rooms: LiveRoom[]): LiveRoom[] {
 }
 
 function sortRoomsForDisplay(rooms: LiveRoom[], mode: RoomSortMode): LiveRoom[] {
-  return mode === "online" ? sortRoomsByOnlineAudience(rooms) : sortRoomsByNormalizedPopularity(rooms);
+  const sorted = mode === "online" ? sortRoomsByOnlineAudience(rooms) : sortRoomsByNormalizedPopularity(rooms);
+  return sorted.sort((left, right) => Number(right.status === "live") - Number(left.status === "live"));
 }
 
 const mergePlatformRooms = (currentRooms: LiveRoom[], update: PlatformRoomsUpdate): LiveRoom[] => [
@@ -155,14 +159,17 @@ function App() {
   const [categoryQuery, setCategoryQuery] = useState("");
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const search = useRoomSearch(query, selectedPlatform, activeView === "rooms");
   const [favoriteLoad] = useState(() => {
     try {
-      return { ids: parseFavoriteIds(localStorage.getItem(favoritesStorageKey)), failed: false };
+      return { collection: parseFavoriteCollection(localStorage.getItem(favoriteCollectionKey), localStorage.getItem(favoritesStorageKey)), failed: false };
     } catch {
-      return { ids: [] as string[], failed: true };
+      return { collection: { version: 2, ids: [], rooms: [] } as FavoriteCollection, failed: true };
     }
   });
-  const [favorites, setFavorites] = useState<string[]>(favoriteLoad.ids);
+  const [favoriteCollection, setFavoriteCollection] = useState(favoriteLoad.collection);
+  const favoriteCollectionRef = useRef(favoriteCollection);
+  const favorites = favoriteCollection.ids;
   const [favoritesReady, setFavoritesReady] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<LiveRoom | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -193,7 +200,7 @@ function App() {
       const nextAppInfo = await window.livehub.getAppInfo();
       setRooms(nextRooms);
       setAppInfo(nextAppInfo);
-      setSelectedRoom((current) => current ? nextRooms.find((room) => room.id === current.id) ?? null : null);
+      setSelectedRoom((current) => current ? nextRooms.find((room) => room.id === current.id) ?? current : null);
       if (announce) {
         setToast("热门房间已更新，完整列表会在后台继续同步。");
       }
@@ -213,7 +220,7 @@ function App() {
           return current;
         }
 
-        return update.rooms.find((room) => room.id === current.id) ?? null;
+        return update.rooms.find((room) => room.id === current.id) ?? current;
       });
       if (update.mode === "featured") {
         setLoading(false);
@@ -222,10 +229,6 @@ function App() {
 
     return unsubscribe;
   }, []);
-
-  useEffect(() => {
-    setSelectedRoom((current) => current && rooms.some((room) => room.id === current.id) ? current : null);
-  }, [rooms]);
 
   useEffect(() => {
     void refreshRooms();
@@ -332,15 +335,17 @@ function App() {
     }
     void (async () => {
       try {
-        const result = await window.livehub.migrateFavorites(favoriteLoad.ids);
+        const result = await window.livehub.migrateFavorites(favoriteLoad.collection.ids);
         if (!active) return;
-        if (JSON.stringify(result.ids) !== JSON.stringify(favoriteLoad.ids)
+        if (JSON.stringify(result.ids) !== JSON.stringify(favoriteLoad.collection.ids)
           && localStorage.getItem(favoritesBackupKey) === null) {
-          localStorage.setItem(favoritesBackupKey, JSON.stringify(favoriteLoad.ids));
+          localStorage.setItem(favoritesBackupKey, JSON.stringify(favoriteLoad.collection.ids));
         }
         // Persist before enabling edits so a close during migration cannot undo recovery.
-        localStorage.setItem(favoritesStorageKey, JSON.stringify(result.ids));
-        setFavorites(result.ids);
+        const collection = updateFavoriteCollection({ ...favoriteLoad.collection, ids: result.ids }, []);
+        localStorage.setItem(favoriteCollectionKey, JSON.stringify(collection));
+        favoriteCollectionRef.current = collection;
+        setFavoriteCollection(collection);
         setFavoritesReady(true);
         if (result.unresolvedCount > 0) {
           setToast(`有 ${result.unresolvedCount} 条旧收藏暂未恢复，记录已保留，下次启动会重试。`);
@@ -353,6 +358,60 @@ function App() {
     })();
     return () => { active = false; };
   }, [favoriteLoad]);
+
+  const saveFavoriteCollection = (collection: FavoriteCollection): void => {
+    if (JSON.stringify(collection) === JSON.stringify(favoriteCollectionRef.current)) return;
+    // IDs and room snapshots commit together, including when storage is full.
+    localStorage.setItem(favoriteCollectionKey, JSON.stringify(collection));
+    favoriteCollectionRef.current = collection;
+    setFavoriteCollection(collection);
+  };
+
+  useEffect(() => {
+    if (!favoritesReady) return;
+    try {
+      saveFavoriteCollection(updateFavoriteCollection(favoriteCollectionRef.current, [...rooms, ...search.pages.flatMap((page) => page.rooms)]));
+    } catch { setToast("收藏资料更新未能保存，请检查磁盘空间。"); }
+  }, [rooms, search.pages, favoritesReady]);
+
+  const favoriteIdsKey = favorites.join("\n");
+  useEffect(() => {
+    if (!favoritesReady) return;
+    let active = true;
+    let timer: number | undefined;
+    const refresh = async (): Promise<void> => {
+      const ids = favoriteCollectionRef.current.ids.filter((id) => /^(bilibili|douyu|huya)-\d{1,20}$/.test(id));
+      for (let offset = 0; offset < ids.length && active; offset += 100) {
+        const batch = ids.slice(offset, offset + 100);
+        try {
+          const result = await window.livehub.refreshFavoriteRooms(batch);
+          if (!active) return;
+          const current = favoriteCollectionRef.current;
+          const failed = new Set(result.failedIds);
+          const unavailable = current.rooms.filter((room) => failed.has(room.id)).map((room): LiveRoom => ({ ...room, status: "unknown", updatedAt: "状态暂不可用", checkedAt: Date.now() }));
+          saveFavoriteCollection(updateFavoriteCollection(current, [...result.rooms, ...unavailable]));
+        } catch {
+          if (!active) return;
+          // A failed lookup never removes a favorite or asserts that it is offline.
+          try {
+            const current = favoriteCollectionRef.current;
+            saveFavoriteCollection(updateFavoriteCollection(current, current.rooms.filter((room) => batch.includes(room.id)).map((room) => ({ ...room, status: "unknown", updatedAt: "状态暂不可用", checkedAt: Date.now() }))));
+          } catch { setToast("收藏资料更新未能保存，请检查磁盘空间。"); }
+        }
+      }
+      if (active) timer = window.setTimeout(() => void refresh(), 5 * 60_000);
+    };
+    void refresh();
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [favoritesReady, favoriteIdsKey]);
+
+  useEffect(() => {
+    setSelectedRoom((current) => {
+      if (!current) return null;
+      return [...rooms, ...favoriteCollection.rooms, ...search.rooms].filter((room) => room.id === current.id)
+        .reduce((latest, room) => (room.checkedAt ?? 0) >= (latest.checkedAt ?? 0) ? room : latest, current);
+    });
+  }, [rooms, favoriteCollection.rooms, search.pages]);
 
   useEffect(() => {
     setVisibleRoomCount(roomPageSize);
@@ -388,25 +447,21 @@ function App() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [selectedRoom]);
 
-  const favoriteRooms = useMemo(() => getFavoriteRooms(rooms, favorites), [favorites, rooms]);
+  const favoriteRooms = useMemo(() => getFavoriteRooms([], favorites, favoriteCollection.rooms), [favoriteCollection]);
   const liveFavoriteCount = useMemo(() => favoriteRooms.filter((room) => room.status === "live").length, [favoriteRooms]);
   const hasLiveFavorites = liveFavoriteCount > 0;
 
   const filteredRooms = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return (activeView === "favorites" ? favoriteRooms : rooms).filter((room) => {
+    const candidates = activeView === "favorites" ? favoriteRooms.filter((room) => matchesRoomQuery(room, normalizedQuery))
+      : mergeSearchRooms(rooms, search.rooms, normalizedQuery);
+    return candidates.filter((room) => {
       const matchesPlatform = selectedPlatform === "all" || selectedPlatform === room.platform;
       const matchesCategory = !selectedCategory || room.category === selectedCategory;
-      const matchesQuery =
-        !normalizedQuery ||
-        [room.title, room.anchor, room.category, ...room.tags].some((value) =>
-          value.toLowerCase().includes(normalizedQuery),
-        );
-
-      return matchesPlatform && matchesCategory && matchesQuery;
+      return matchesPlatform && matchesCategory;
     });
-  }, [activeView, favoriteRooms, query, rooms, selectedCategory, selectedPlatform]);
+  }, [activeView, favoriteRooms, query, rooms, selectedCategory, selectedPlatform, search.pages]);
 
   const categoryOptions = useMemo<CategoryOption[]>(() => {
     const optionMap = new Map<string, CategoryOption>();
@@ -444,8 +499,10 @@ function App() {
     filteredRooms.length > 0 && filteredRooms.every(hasReportedOnlineMetric),
   [filteredRooms]);
   const effectiveSortMode: RoomSortMode = sortMode === "online" && canSortByOnline ? "online" : "popularity";
-  const sortedRooms = useMemo(() => sortRoomsForDisplay(filteredRooms, effectiveSortMode), [filteredRooms, effectiveSortMode]);
+  const sortedRooms = useMemo(() => activeView === "rooms" && query.trim() ? filteredRooms : sortRoomsForDisplay(filteredRooms, effectiveSortMode), [filteredRooms, effectiveSortMode, activeView, query]);
   const visibleRooms = useMemo(() => sortedRooms.slice(0, visibleRoomCount), [sortedRooms, visibleRoomCount]);
+  const listLoading = loading && activeView === "rooms" && !query.trim();
+  const listError = activeView === "rooms" && !query.trim() ? error : null;
 
   const { totalViewers, audienceMetricCount, liveCount } = useMemo(() => {
     let totalViewers = 0;
@@ -515,10 +572,8 @@ function App() {
 
   const toggleFavorite = (room: LiveRoom): void => {
     if (!favoritesReady) return;
-    const next = toggleFavoriteRoom(room, favorites);
     try {
-      localStorage.setItem(favoritesStorageKey, JSON.stringify(next));
-      setFavorites(next);
+      saveFavoriteCollection(toggleFavoriteCollection(favoriteCollectionRef.current, room));
     } catch {
       setToast("收藏保存失败，请检查磁盘空间后重试。");
     }
@@ -832,8 +887,9 @@ function App() {
             <input
               ref={searchInputRef}
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索主播、房间或分类"
+              onChange={(event) => { setQuery(event.target.value); setSelectedCategory(null); }}
+              maxLength={50}
+              placeholder={activeView === "favorites" ? "搜索已收藏的主播" : "搜索主播，包含未开播"}
               aria-label="搜索直播间"
             />
             <span className="search-shortcut">⌘ K</span>
@@ -1010,7 +1066,7 @@ function App() {
             <section className="room-section">
               <div className="section-heading">
                 <div>
-                  <span className="eyebrow">正在直播 · 精选内容</span>
+                  <span className="eyebrow">{activeView === "favorites" ? "收藏的主播 · 下播也保留" : query.trim() ? "主播搜索 · 包含未开播" : "正在直播 · 精选内容"}</span>
                   <h2>{activeView === "favorites" ? "我的收藏" : "直播大厅"}<span>{filteredRooms.length}</span></h2>
                 </div>
                 <div className="section-heading-actions">
@@ -1177,23 +1233,30 @@ function App() {
             </div>
 
             <div className="content-grid">
+              {activeView === "rooms" && query.trim() && (
+                <div className="search-status" role="status" aria-live="polite">
+                  <span>{selectedPlatform === "douyin" ? "抖音仅搜索已同步的直播间。" : search.loading ? "正在搜索主播，包含未开播的直播间…" : "已查询平台主播，包含未开播的直播间。"}</span>
+                  {selectedPlatform === "all" && <span>抖音仅匹配已同步房间。</span>}
+                  {search.pages.filter((page) => page.error).map((page) => <span className="search-error" key={page.platform}>{platformMeta[page.platform].label}搜索暂不可用。</span>)}
+                </div>
+              )}
               <div className={`room-grid ${roomLayout === "list" ? "list-layout" : ""}`}>
-                {loading && <div className="empty-state">正在加载直播列表…</div>}
-                {!loading && error && <div className="empty-state error-state">{error}</div>}
-                {!loading && !error && filteredRooms.length === 0 && (
+                {listLoading && <div className="empty-state">正在加载直播列表…</div>}
+                {!listLoading && listError && <div className="empty-state error-state">{listError}</div>}
+                {!listLoading && !listError && filteredRooms.length === 0 && (
                   <div className="empty-state">
                     <span className="empty-icon">⌁</span>
-                    <strong>这里还没有直播</strong>
-                    <span>换个平台或搜索词试试看吧。</span>
+                    <strong>{search.loading ? "正在搜索主播…" : activeView === "favorites" ? query.trim() ? "没有匹配的收藏" : "还没有收藏主播" : query.trim() ? "没有找到匹配的主播" : "这里还没有直播"}</strong>
+                    <span>{activeView === "favorites" && !query.trim() ? "在直播大厅搜索主播，未开播也能收藏。" : "换个平台或搜索词试试看吧。"}</span>
                   </div>
                 )}
-                {!loading && !error && visibleRooms.map((room) => {
+                {!listLoading && !listError && visibleRooms.map((room) => {
                   const meta = platformMeta[room.platform];
                   const isFavorite = isFavoriteRoom(room, favorites);
 
                     return (
                       <article
-                        className={`room-card ${selectedRoom?.id === room.id ? "selected" : ""}`}
+                        className={`room-card ${room.status !== "live" ? "room-not-live" : ""} ${selectedRoom?.id === room.id ? "selected" : ""}`}
                         key={room.id}
                         onClick={() => setSelectedRoom(room)}
                         onKeyDown={(event) => {
@@ -1206,7 +1269,7 @@ function App() {
                         <div className="room-cover" style={{ background: room.cover }}>
                           <div className="cover-topline">
                             <div className="cover-ident">
-                              <span className="live-pill"><span />直播中</span>
+                              <span className={`live-pill ${room.status !== "live" ? "not-live" : ""}`}><span />{roomStatusLabel(room)}</span>
                               <span className="platform-badge" style={{ color: meta.accent }}>{meta.label}</span>
                             </div>
                             <button
@@ -1223,7 +1286,7 @@ function App() {
                             </button>
                           </div>
                           <div className="cover-bottomline">
-                            <span>● {displayViewers(room)} {audienceValueLabel(room)}</span>
+                            <span>{room.status === "live" ? `● ${displayViewers(room)} ${audienceValueLabel(room)}` : roomStatusLabel(room)}</span>
                             <span>{room.category}</span>
                           </div>
                         </div>
@@ -1245,12 +1308,17 @@ function App() {
                       </article>
                     );
                   })}
-                  {!loading && !error && visibleRooms.length < filteredRooms.length && (
+                  {!listLoading && !listError && visibleRooms.length < filteredRooms.length && (
                     <button
                       className="load-more-button"
                       onClick={() => setVisibleRoomCount((count) => count + roomPageSize)}
                     >
                       加载更多 · 还剩 {filteredRooms.length - visibleRooms.length} 个
+                    </button>
+                  )}
+                  {activeView === "rooms" && query.trim() && search.hasMore && visibleRooms.length >= filteredRooms.length && (
+                    <button className="load-more-button" disabled={search.loading} onClick={() => void search.loadMore()}>
+                      {search.loading ? "搜索中…" : search.pages.some((page) => page.error) ? "继续搜索 / 重试失败的平台" : "搜索更多主播"}
                     </button>
                   )}
                 </div>
@@ -1271,7 +1339,7 @@ function App() {
                     >
                     <>
                       <div className="detail-header">
-                        <div className="detail-label">NOW PLAYING</div>
+                        <div className="detail-label">{selectedRoom.status === "live" ? "LIVE ROOM" : "主播直播间"}</div>
                         <button
                           className="detail-close"
                           onClick={() => setSelectedRoom(null)}
@@ -1283,8 +1351,8 @@ function App() {
                       <div className="detail-preview" style={{ background: selectedRoom.cover }}>
                         <span className="preview-glow" />
                         <span className="preview-platform">{platformMeta[selectedRoom.platform].short}</span>
-                        <span className="preview-play">▶</span>
-                        <span className="preview-status"><span />LIVE</span>
+                        <span className="preview-play">{selectedRoom.status === "live" ? "▶" : "☾"}</span>
+                        <span className={`preview-status ${selectedRoom.status !== "live" ? "not-live" : ""}`}><span />{roomStatusLabel(selectedRoom)}</span>
                       </div>
                       <div className="detail-content">
                         <div className="detail-title-row">
@@ -1304,7 +1372,7 @@ function App() {
                         </div>
                         <div className="detail-anchor"><span className="anchor-avatar large">{selectedRoom.anchor.slice(0, 1)}</span><span className="anchor-name">{selectedRoom.anchor}</span></div>
                         <div className="detail-stats">
-                          <div><span>{audienceStatLabel(selectedRoom)}</span><strong>{displayViewers(selectedRoom)}</strong></div>
+                          <div><span>{selectedRoom.status === "live" ? audienceStatLabel(selectedRoom) : "开播状态"}</span><strong>{selectedRoom.status === "live" ? displayViewers(selectedRoom) : roomStatusLabel(selectedRoom)}</strong></div>
                           <div><span>分类</span><strong>{selectedRoom.category}</strong></div>
                         </div>
                         <div className="detail-action-stack">
@@ -1324,9 +1392,9 @@ function App() {
                                 ))}
                               </select>
                             </label>
-                            <button className="play-button" onClick={() => void handlePlay(selectedRoom)} disabled={playingId === selectedRoom.id || playerLoading || !selectedPlayer}>
+                            <button className="play-button" onClick={() => void handlePlay(selectedRoom)} disabled={selectedRoom.status === "offline" || playingId === selectedRoom.id || playerLoading || !selectedPlayer}>
                               <span>{playingId === selectedRoom.id ? "…" : "▶"}</span>
-                              {playingId === selectedRoom.id
+                              {selectedRoom.status === "offline" ? "主播未开播" : playingId === selectedRoom.id
                                 ? "准备中"
                                 : selectedPlayer
                                   ? "使用播放器"
@@ -1357,7 +1425,7 @@ function App() {
                           )}
                         </div>
                         <p className="detail-hint">
-                          {selectedRoom.demo
+                          {selectedRoom.status === "offline" ? "主播尚未开播，收藏后会保留；也可以打开直播间网页。" : selectedRoom.status === "unknown" ? "暂时无法确认开播状态，收藏记录会保留，可以尝试播放或打开网页。" : selectedRoom.demo
                             ? "这是演示房间。"
                             : selectedPlayer
                               ? "播放器按钮只会获取直连流并打开播放器；网页按钮需要单独点击。"

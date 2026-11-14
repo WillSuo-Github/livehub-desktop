@@ -38,7 +38,9 @@ The source is cross-platform. The GitHub Actions release workflow builds macOS a
 - Single-select platform switching, with an all-platforms view.
 - Single-select category filtering, including platform + category combinations.
 - Search by room title, anchor, category, and tags.
-- Favorites stored locally, with a sidebar green dot when a synchronized favorite room is live.
+- Desktop search queries Bilibili, Douyu and Huya for anchors, including offline rooms, alongside local matches. Load more results or retry failed platforms; Douyin search remains limited to synchronized rooms.
+- Favorites retain local room metadata after a broadcaster goes offline, disappears from the directory, or the app restarts. Bilibili, Douyu and Huya favorite states refresh at launch and five minutes after each completed check. Failed checks show an unknown state and preserve the favorite.
+- The sidebar green dot indicates confirmed live favorites. Offline rooms can be favorited or opened on the web; playback is disabled while offline. Searching Favorites only filters saved anchors.
 - Default popularity sorting that normalizes each platform's own ranking before merging platforms.
 - Online-audience sorting when every room in the current filtered results reports a comparable online count, such as a Douyin-only view.
 - Featured rooms appear first while full platform aggregation continues in the background.
