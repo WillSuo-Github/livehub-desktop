@@ -2,8 +2,8 @@
 
 For the public remote subscription, import
 `https://live-catalog-addon.open-live-catalog.workers.dev/manifest.json` in
-[Vunio](https://vunio.willsuo.com/). No local LiveHub process is required.
-The [README](../README.en.md#watch-live-streams-in-vunio) includes the setup
+[Vupilo](https://vupilo.willsuo.com/). No local LiveHub process is required.
+The [README](../README.en.md#watch-live-streams-in-vupilo) includes the setup
 steps and current remote-platform limitations. The instructions below are for
 the separate local development server, whose upstream network conditions differ.
 
@@ -22,7 +22,7 @@ npm install
 npm run stremio
 ```
 
-In Vunio, choose **Add Protocol**, enter this URL, and save:
+In Vupilo, choose **Add Protocol**, enter this URL, and save:
 
 ```text
 http://127.0.0.1:11471/manifest.json
@@ -41,7 +41,7 @@ npm run stremio -- --host 0.0.0.0 --port 11471
 
 Import `http://<Mac-LAN-IP>:11471/manifest.json` on that device. There is no
 authentication or TLS in this local development server; do not expose its port
-to the public Internet. `stremio://` addresses normalize to HTTPS in Vunio, so
+to the public Internet. `stremio://` addresses normalize to HTTPS in Vupilo, so
 use the explicit `http://` address for this local server.
 
 ## Directory coverage and refresh
@@ -71,7 +71,7 @@ requests for one room share only their in-flight lookup. Each available
 quality/CDN is a separate Stremio stream; required request headers are carried
 in `behaviorHints.proxyHeaders.request`, with `notWebReady: true`.
 
-Video travels directly from the platform CDN to Vunio. This service does not
+Video travels directly from the platform CDN to Vupilo. This service does not
 relay video, transcode or execute downloaded addon scripts. Platform/CDN
 restrictions, expired URLs and room closures can still interrupt playback.
 Reopen the room to resolve a new URL. Long-running automatic URL renewal is not
@@ -103,7 +103,7 @@ npm run build
 The HTTP tests cover four catalogs, Unicode/escaped search, paging, metadata,
 headers, fresh URLs, concurrent lookups, background updates and upstream errors.
 They use deterministic fixtures. Live acceptance additionally requires importing
-the manifest in Vunio and checking browsing, search and actual video playback
+the manifest in Vupilo and checking browsing, search and actual video playback
 for each platform; see `Stremio-local-validation.md` for the recorded local run.
 
 Protocol references: [Stremio addon protocol](https://stremio.github.io/stremio-addon-sdk/protocol.html),

@@ -6,9 +6,9 @@ LiveHub 是基于 Electron 的跨平台直播桌面客户端，将抖音、斗�
 
 **使用播放器**会尝试调用选中的媒体播放器，不会在失败时自动打开网页。访问平台直播间需要单独点击**使用网页打开直播间**。
 
-## 在 Vunio 中订阅直播
+## 在 Vupilo 中订阅直播
 
-推荐搭配 [Vunio 播放器](https://vunio.willsuo.com/) 使用：添加一个订阅链接，就能在播放器里浏览、搜索和播放热门直播间。
+推荐搭配 [Vupilo 播放器](https://vupilo.willsuo.com/) 使用：添加一个订阅链接，就能在播放器里浏览、搜索和播放热门直播间。
 
 **公开订阅链接：**
 
@@ -16,7 +16,7 @@ LiveHub 是基于 Electron 的跨平台直播桌面客户端，将抖音、斗�
 https://live-catalog-addon.open-live-catalog.workers.dev/manifest.json
 ```
 
-1. 安装并打开 [Vunio](https://vunio.willsuo.com/)。
+1. 安装并打开 [Vupilo](https://vupilo.willsuo.com/)。
 2. 点击添加入口，选择**添加协议**，粘贴上面的链接并保存。
 3. 打开 **Live Catalog** 订阅，在 **Catalog** 中切换平台，搜索主播或直播标题，选择直播间和播放线路即可播放。
 
@@ -101,7 +101,7 @@ Windows 安装包未进行代码签名，首次下载或启动时可能出现 Sm
 
 LiveHub 会检测以下播放器的常见安装位置或命令：
 
-- Vunio
+- Vupilo
 - IINA
 - mpv
 - VLC
@@ -109,9 +109,9 @@ LiveHub 会检测以下播放器的常见安装位置或命令：
 - PotPlayer
 - ffplay
 
-界面只显示当前机器实际检测到的播放器，不同系统的可用播放器可能不同。在详情面板或设置中选择播放器后，该选择会保存为默认播放器。Vunio 通过 `vunio://play` URL 协议打开；其他播放器接收解析后的直连流地址。
+界面只显示当前机器实际检测到的播放器，不同系统的可用播放器可能不同。在详情面板或设置中选择播放器后，该选择会保存为默认播放器。Vupilo 通过 `vupilo://play` URL 协议打开；其他播放器接收解析后的直连流地址。
 
-LiveHub 当前仅在 macOS 检测 Vunio，并在播放器选择器旁和设置页提供专用入口。点击入口后会重新扫描：已安装 Vunio 时将其设为默认播放器，未检测到时打开 [Vunio 官网](https://vunio.willsuo.com) 供下载。Windows 和 Linux 不显示该专用入口。
+LiveHub 当前仅在 macOS 检测 Vupilo，并在播放器选择器旁和设置页提供专用入口。点击入口后会重新扫描：已安装 Vupilo 时将其设为默认播放器，未检测到时打开 [Vupilo 官网](https://vupilo.willsuo.com) 供下载。Windows 和 Linux 不显示该专用入口。仍兼容旧版 Vunio 的安装路径与播放协议，并保留已有的默认播放器选择。
 
 ## 数据来源与限制
 
@@ -132,7 +132,7 @@ LiveHub 使用各平台公开的直播目录接口，以及本仓库维护的适
 
 ## Stremio 本地订阅源
 
-运行 `npm run stremio`，即可在 Vunio 的“添加协议”中导入
+运行 `npm run stremio`，即可在 Vupilo 的“添加协议”中导入
 `http://127.0.0.1:11471/manifest.json`，浏览、搜索和播放四个平台的直播间。
 服务独立运行，无需启动 Electron。默认搜索已收录的热门直播间；可用
 `npm run stremio -- --full-sync` 在后台扩大目录覆盖范围。

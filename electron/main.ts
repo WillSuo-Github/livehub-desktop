@@ -7,7 +7,7 @@ import { PlayerService } from "./player-service";
 import { PlatformService } from "./platform-service";
 import { DouyinAdapter } from "./douyin-adapter";
 import { normalizeDanmakuKindFilter } from "../shared/danmaku";
-import { vunioSiteUrl } from "../shared/vunio";
+import { vupiloSiteUrl } from "../shared/vupilo";
 import { migrateFavoriteIds } from "./favorites-migration";
 import { RoomSearchService } from "./room-search-service";
 import type {
@@ -113,12 +113,12 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle("vunio:open-site", async () => {
+  ipcMain.handle("vupilo:open-site", async () => {
     try {
-      await shell.openExternal(vunioSiteUrl);
-      return { ok: true, message: "已打开 Vunio 官网，安装后回到这里即可选用。" };
+      await shell.openExternal(vupiloSiteUrl);
+      return { ok: true, message: "已打开 Vupilo 官网，安装后回到这里即可选用。" };
     } catch {
-      return { ok: false, message: "Vunio 官网打开失败，请检查系统浏览器是否可用。" };
+      return { ok: false, message: "Vupilo 官网打开失败，请检查系统浏览器是否可用。" };
     }
   });
 }

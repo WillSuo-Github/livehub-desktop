@@ -10,7 +10,7 @@ import type {
   UpdateStatus,
 } from "../shared/types";
 import { danmakuKindLabels, danmakuKinds, defaultDanmakuKindFilter } from "../shared/danmaku";
-import { vunioPlayerId } from "../shared/vunio";
+import { vupiloPlayerId } from "../shared/vupilo";
 import { favoriteCollectionKey, favoritesBackupKey, favoritesStorageKey, getFavoriteRooms, isFavoriteRoom, parseFavoriteCollection, toggleFavoriteCollection, updateFavoriteCollection, type FavoriteCollection } from "../shared/favorites";
 import { matchesRoomQuery, mergeSearchRooms } from "../shared/room-search";
 import { useRoomSearch } from "./use-room-search";
@@ -177,7 +177,7 @@ function App() {
   const [playerState, setPlayerState] = useState<PlayerState | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [playerLoading, setPlayerLoading] = useState(true);
-  const [vunioPending, setVunioPending] = useState(false);
+  const [vupiloPending, setVupiloPending] = useState(false);
   const [backgroundFullSyncEnabled, setBackgroundFullSyncEnabled] = useState(true);
   const [backgroundSyncSaving, setBackgroundSyncSaving] = useState(false);
   const [danmakuFilter, setDanmakuFilter] = useState<DanmakuKindFilter>(defaultDanmakuKindFilter);
@@ -541,16 +541,16 @@ function App() {
   ).length;
   const selectedPlayer = playerState?.players.find((player) => player.id === selectedPlayerId)
     ?? playerState?.players.find((player) => player.id === playerState.defaultPlayerId);
-  const vunioInstalled = playerState?.players.some((player) => player.id === vunioPlayerId) ?? false;
-  const vunioIsDefault = vunioInstalled && selectedPlayer?.id === vunioPlayerId;
-  const vunioButtonLabel = vunioPending
+  const vupiloInstalled = playerState?.players.some((player) => player.id === vupiloPlayerId) ?? false;
+  const vupiloIsDefault = vupiloInstalled && selectedPlayer?.id === vupiloPlayerId;
+  const vupiloButtonLabel = vupiloPending
     ? "处理中…"
-    : !vunioInstalled
-      ? "下载 Vunio 播放器"
-      : vunioIsDefault
-        ? "Vunio 已是默认播放器"
-        : "切换到 Vunio 播放器";
-  const vunioButtonHint = vunioInstalled
+    : !vupiloInstalled
+      ? "下载 Vupilo 播放器"
+      : vupiloIsDefault
+        ? "Vupilo 已是默认播放器"
+        : "切换到 Vupilo 播放器";
+  const vupiloButtonHint = vupiloInstalled
     ? "直播弹幕直接叠在播放画面上"
     : "支持直播弹幕叠加，直连流播放";
   const updateButtonLabel = updateStatus?.state === "downloaded"
@@ -631,15 +631,15 @@ function App() {
     }
   };
 
-  // The scanned player list is cached for the whole session, so a Vunio that was
+  // The scanned player list is cached for the whole session, so a Vupilo that was
   // installed after launch would still look missing. Rescan on click and decide
   // from that fresh result instead of the cached state.
-  const handleVunioAction = async (): Promise<void> => {
-    if (vunioPending) {
+  const handleVupiloAction = async (): Promise<void> => {
+    if (vupiloPending) {
       return;
     }
 
-    setVunioPending(true);
+    setVupiloPending(true);
 
     try {
       const scannedState = await window.livehub.refreshPlayers();
@@ -649,20 +649,20 @@ function App() {
           ? current
           : scannedState.defaultPlayerId);
 
-      if (!scannedState.players.some((player) => player.id === vunioPlayerId)) {
-        const result = await window.livehub.openVunioSite();
+      if (!scannedState.players.some((player) => player.id === vupiloPlayerId)) {
+        const result = await window.livehub.openVupiloSite();
         setToast(result.message);
         return;
       }
 
-      const nextState = await window.livehub.setDefaultPlayer(vunioPlayerId);
+      const nextState = await window.livehub.setDefaultPlayer(vupiloPlayerId);
       setPlayerState(nextState);
       setSelectedPlayerId(nextState.defaultPlayerId);
-      setToast("Vunio 已设为默认播放器。");
+      setToast("Vupilo 已设为默认播放器。");
     } catch {
-      setToast("Vunio 暂时不可用，请稍后重试。");
+      setToast("Vupilo 暂时不可用，请稍后重试。");
     } finally {
-      setVunioPending(false);
+      setVupiloPending(false);
     }
   };
 
@@ -928,20 +928,20 @@ function App() {
               {isMacOS && (
                 <div className="setting-row">
                   <div>
-                    <strong>Vunio 播放器</strong>
+                    <strong>Vupilo 播放器</strong>
                     <span>
-                      {vunioInstalled
+                      {vupiloInstalled
                         ? "已安装，设为默认后直播会带弹幕叠加在画面上。"
                         : "还没有安装，前往官网下载后即可直接播放直连流并叠加弹幕。"}
                     </span>
                   </div>
                   <button
-                    className="secondary-button vunio-secondary-button"
-                    onClick={() => void handleVunioAction()}
-                    disabled={vunioPending}
+                    className="secondary-button vupilo-secondary-button"
+                    onClick={() => void handleVupiloAction()}
+                    disabled={vupiloPending}
                   >
-                    <span className="vunio-mark">V</span>
-                    {vunioPending ? "处理中…" : vunioInstalled ? "设为默认" : "前往官网"}
+                    <span className="vupilo-mark">V</span>
+                    {vupiloPending ? "处理中…" : vupiloInstalled ? "设为默认" : "前往官网"}
                   </button>
                 </div>
               )}
@@ -1411,15 +1411,15 @@ function App() {
                           </button>
                           {isMacOS && (
                             <button
-                              className={`vunio-button ${vunioIsDefault ? "active" : ""}`}
-                              onClick={() => void handleVunioAction()}
-                              disabled={vunioPending}
-                              aria-label={`${vunioInstalled ? "把 Vunio 设为默认播放器" : "前往 Vunio 官网下载"}，${vunioButtonHint}`}
+                              className={`vupilo-button ${vupiloIsDefault ? "active" : ""}`}
+                              onClick={() => void handleVupiloAction()}
+                              disabled={vupiloPending}
+                              aria-label={`${vupiloInstalled ? "把 Vupilo 设为默认播放器" : "前往 Vupilo 官网下载"}，${vupiloButtonHint}`}
                             >
-                              <span className="vunio-mark">V</span>
-                              <span className="vunio-button-text">
-                                <strong>{vunioButtonLabel}</strong>
-                                <span>{vunioButtonHint}</span>
+                              <span className="vupilo-mark">V</span>
+                              <span className="vupilo-button-text">
+                                <strong>{vupiloButtonLabel}</strong>
+                                <span>{vupiloButtonHint}</span>
                               </span>
                             </button>
                           )}

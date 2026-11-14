@@ -54,7 +54,7 @@ const api: LiveHubApi = {
     ipcRenderer.invoke("player:open", room, playerId),
   openWebRoom: (room: LiveRoom): Promise<OpenWebResult> =>
     ipcRenderer.invoke("room:open-web", room),
-  openVunioSite: (): Promise<OpenWebResult> => ipcRenderer.invoke("vunio:open-site"),
+  openVupiloSite: (): Promise<OpenWebResult> => ipcRenderer.invoke("vupilo:open-site"),
 };
 
 contextBridge.exposeInMainWorld("livehub", api);

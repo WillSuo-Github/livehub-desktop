@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { DanmakuService, type DanmakuSessionHandle } from "./danmaku-service";
 import { StreamService } from "./stream-service";
 import { browserUserAgent } from "./platform-http";
-import { vunioPlayerId, vunioPlayerName } from "../shared/vunio";
+import { vupiloPlayerId, vupiloPlayerName } from "../shared/vupilo";
 import type {
   LiveRoom,
   DanmakuKindFilter,
@@ -139,7 +139,7 @@ export class PlayerService {
     }
 
     let danmakuSession: DanmakuSessionHandle | null = null;
-    if (player.id === vunioPlayerId) {
+    if (player.id === vupiloPlayerId) {
       try {
         danmakuSession = await this.danmakuService.createSession(room);
       } catch {
@@ -228,8 +228,8 @@ function createResolvedPlayer(
     kind: "media",
     location: executable,
     launch: (url, options) => {
-      if (definition.id === vunioPlayerId) {
-        return launchVunio(executable, url, options);
+      if (definition.id === vupiloPlayerId) {
+        return launchVupilo(executable, url, options);
       }
       if (definition.id === "iina") {
         return launchIina(executable, source, url, options);
@@ -270,7 +270,7 @@ function launchIina(
   return launchCommand(iinaCli, args);
 }
 
-function launchVunio(
+function launchVupilo(
   appPath: string,
   streamUrl: string,
   options?: PlayerLaunchOptions,
@@ -282,7 +282,7 @@ function launchVunio(
 
   // The query is percent-encoded item by item rather than through
   // `URLSearchParams`. That API writes application/x-www-form-urlencoded, which
-  // spells a space as "+", while Vunio reads the handoff with RFC 3986 query
+  // spells a space as "+", while Vupilo reads the handoff with RFC 3986 query
   // decoding and leaves "+" in place. Every forwarded header therefore arrived
   // as `Referer: +https://live.bilibili.com/`, and the stricter Bilibili live
   // edges answer a malformed Referer with HTTP 403 while the permissive ones
@@ -297,7 +297,9 @@ function launchVunio(
     queryItems.push(`danmakuUrl=${encodeURIComponent(options.danmakuUrl)}`);
   }
 
-  return launchCommand("open", ["-a", appPath, `vunio://play?${queryItems.join("&")}`]);
+  // Older installations only register the legacy scheme.
+  const scheme = path.basename(appPath) === "Vunio.app" ? "vunio" : "vupilo";
+  return launchCommand("open", ["-a", appPath, `${scheme}://play?${queryItems.join("&")}`]);
 }
 
 function getPlayerLaunchOptions(
@@ -352,7 +354,7 @@ function launchCommand(command: string, args: string[]): Promise<void> {
 }
 
 function getPlayableStream(playback?: PlaybackUrls, playerId?: string): PlayableStream | null {
-  const candidateUrls = playerId === vunioPlayerId
+  const candidateUrls = playerId === vupiloPlayerId
     ? [firstValue(playback?.flv), firstValue(playback?.hls)]
     : [firstValue(playback?.hls), firstValue(playback?.flv)];
   const url = candidateUrls.find((candidate): candidate is string => Boolean(candidate));
@@ -385,9 +387,11 @@ function getPlayerDefinitions(): PlayerDefinition[] {
   const home = os.homedir();
   const definitions: PlayerDefinition[] = [
     {
-      id: vunioPlayerId,
-      name: vunioPlayerName,
+      id: vupiloPlayerId,
+      name: vupiloPlayerName,
       candidates: [
+        { kind: "app", value: path.join("/Applications", "Vupilo.app") },
+        { kind: "app", value: path.join(home, "Applications", "Vupilo.app") },
         { kind: "app", value: path.join("/Applications", "Vunio.app") },
         { kind: "app", value: path.join(home, "Applications", "Vunio.app") },
       ],

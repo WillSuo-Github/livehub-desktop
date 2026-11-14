@@ -58,7 +58,7 @@ test("one manifest exposes four live catalogs with search, paging and CORS", asy
   assert.equal(f.resolutions.length, 0);
 });
 
-test("Unicode search, encoded separators, pagination and offline filtering match Vunio requests", async (t) => {
+test("Unicode search, encoded separators, pagination and offline filtering match Vupilo requests", async (t) => {
   const rooms = Array.from({ length: 63 }, (_, index) => room("douyin", index + 1));
   rooms.push({ ...room("douyin", 70), status: "offline" });
   rooms[0].title = "A&B=C/中文";

@@ -6,9 +6,9 @@ LiveHub is a cross-platform Electron desktop client for discovering live rooms f
 
 The project is designed around one rule: the **使用播放器** (Use Player) action always tries the selected media player and never silently falls back to a web page. Opening the platform page is a separate, explicit action.
 
-## Watch live streams in Vunio
+## Watch live streams in Vupilo
 
-Pair this live catalog with [Vunio](https://vunio.willsuo.com/): add one subscription URL to browse, search and play featured live rooms directly in your media player.
+Pair this live catalog with [Vupilo](https://vupilo.willsuo.com/): add one subscription URL to browse, search and play featured live rooms directly in your media player.
 
 **Public subscription URL:**
 
@@ -16,7 +16,7 @@ Pair this live catalog with [Vunio](https://vunio.willsuo.com/): add one subscri
 https://live-catalog-addon.open-live-catalog.workers.dev/manifest.json
 ```
 
-1. Install and open [Vunio](https://vunio.willsuo.com/).
+1. Install and open [Vupilo](https://vupilo.willsuo.com/).
 2. Open the add menu, choose **Add Protocol**, paste the URL above and save.
 3. Open **Live Catalog**, choose a platform in **Catalog**, search by anchor or room title, then select a room and a stream option to play.
 
@@ -91,7 +91,7 @@ Packaged builds check the public GitHub Releases feed after launch. When a newer
 
 LiveHub scans common local installations of:
 
-- Vunio
+- Vupilo
 - IINA
 - mpv
 - VLC
@@ -99,9 +99,9 @@ LiveHub scans common local installations of:
 - PotPlayer
 - ffplay
 
-Only players found on the current machine are shown. Selecting a player beside the play button or in Settings updates the persisted default. Vunio is opened through its `vunio://play` URL scheme; the other players receive the resolved stream URL directly.
+Only players found on the current machine are shown. Selecting a player beside the play button or in Settings updates the persisted default. Vupilo is opened through its `vupilo://play` URL scheme; the other players receive the resolved stream URL directly.
 
-macOS builds also show a permanent Vunio action next to the player picker and in Settings. Clicking it rescans the machine: when Vunio is installed it becomes the default player, and when it is missing LiveHub opens <https://vunio.willsuo.com> so it can be downloaded. LiveHub currently detects Vunio and provides this dedicated action only on macOS; the action is hidden on Windows and Linux.
+macOS builds also show a permanent Vupilo action next to the player picker and in Settings. Clicking it rescans the machine: when Vupilo is installed it becomes the default player, and when it is missing LiveHub opens <https://vupilo.willsuo.com> so it can be downloaded. LiveHub currently detects Vupilo and provides this dedicated action only on macOS; the action is hidden on Windows and Linux. Legacy Vunio installation paths and playback links remain compatible, and existing default-player selections are preserved.
 
 ## Data sources and limitations
 
@@ -122,7 +122,7 @@ The packaged application contains the native Douyin helper for the target operat
 
 ## Local Stremio source
 
-For local development, run `npm run stremio` and import `http://127.0.0.1:11471/manifest.json` in Vunio's **Add Protocol** sheet. This separate local service reuses the desktop adapters without launching Electron. Search covers indexed featured rooms; `--full-sync` expands coverage in the background. See [local setup and validation](docs/Stremio.md).
+For local development, run `npm run stremio` and import `http://127.0.0.1:11471/manifest.json` in Vupilo's **Add Protocol** sheet. This separate local service reuses the desktop adapters without launching Electron. Search covers indexed featured rooms; `--full-sync` expands coverage in the background. See [local setup and validation](docs/Stremio.md).
 
 ## Development prerequisites
 

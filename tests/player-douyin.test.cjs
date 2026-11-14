@@ -23,7 +23,7 @@ function makeService(resolve) {
   const launches = [];
   const service = new PlayerService();
   service.resolvePlayers = async () => [{
-    id: "vunio", name: "Vunio", launch: async (...args) => launches.push(args),
+    id: "vunio", name: "Vupilo", launch: async (...args) => launches.push(args),
   }];
   service.getState = async () => ({ defaultPlayerId: "vunio" });
   service.streamService = { resolve };
@@ -51,7 +51,7 @@ test("Douyin lookup failure never launches the cached list URL", async () => {
   assert.equal(launches.length, 0);
 });
 
-test("Douyin hands the fresh HTTPS URL and headers to Vunio", async () => {
+test("Douyin hands the fresh HTTPS URL and headers to Vupilo", async () => {
   const fresh = "https://example.com/current.flv";
   const headers = { Referer: room.webUrl, "User-Agent": "Browser UA" };
   const { service, launches } = makeService(async () => ({
