@@ -6,6 +6,7 @@ import path from "node:path";
 import { PlayerService } from "./player-service";
 import { PlatformService } from "./platform-service";
 import { DouyinAdapter } from "./douyin-adapter";
+import { startDouyinBrowser } from "./douyin-browser";
 import { normalizeDanmakuKindFilter } from "../shared/danmaku";
 import { vupiloSiteUrl } from "../shared/vupilo";
 import { migrateFavoriteIds } from "./favorites-migration";
@@ -19,6 +20,7 @@ import type {
 } from "../shared/types";
 
 const service = new PlatformService(new DouyinAdapter({
+  startPagination: startDouyinBrowser,
   packaged: app.isPackaged,
   helperDirectory: app.isPackaged
     ? path.join(process.resourcesPath, "native", "douyin-helper")

@@ -16,7 +16,8 @@
     "start": "electron .",
     "stremio": "npm run build:electron && node dist-electron/electron/stremio-main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "test": "npm run build:electron && node --test tests/*.test.cjs"
+    "test": "npm run test:douyin-helper && npm run build:electron && node --test tests/*.test.cjs",
+    "test:douyin-helper": "cd native/douyin-helper && go test ./..."
   },
   "dependencies": {
     "electron-updater": "^6.8.9",

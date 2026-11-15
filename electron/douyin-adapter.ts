@@ -26,6 +26,8 @@ export interface DouyinListResult {
   partial: boolean;
   source: string;
   complete?: boolean;
+  coverageNote?: string;
+  pagesFetched?: number;
   confirmedAbove?: number;
 }
 
@@ -40,12 +42,12 @@ const hotCategoryLimit = 24;
 function runProcess(
   command: string,
   args: string[],
-  options: { cwd: string; timeoutMs: number },
+  options: { cwd: string; timeoutMs: number; env?: Record<string, string> },
 ): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: process.env,
+      env: { ...process.env, ...options.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
@@ -96,6 +98,7 @@ export class DouyinAdapter {
   constructor(private readonly runtime: {
     helperDirectory?: string;
     packaged?: boolean;
+    startPagination?: () => Promise<{ url: string; close(): void }>;
   } = {}) {}
 
   private helperPath: string | null = null;
@@ -112,17 +115,28 @@ export class DouyinAdapter {
   }
 
   async listRooms(): Promise<DouyinListResult> {
-    const result = await this.invoke<DouyinListResult>(["rooms-all", "--workers", "4"], 180_000);
+    const result = await this.invoke<DouyinListResult>(["rooms-all", "--workers", "4"], 360_000);
     this.hotCategoryIds = rankHotCategories(result.rooms);
     return result;
   }
 
   private async invoke<T>(args: string[], timeoutMs = 30_000): Promise<T> {
     const helperPath = await this.ensureHelper();
-    const result = await runProcess(helperPath, args, {
-      cwd: this.getHelperDirectory(),
-      timeoutMs,
-    });
+    let pagination: { url: string; close(): void } | undefined;
+    try {
+      pagination = await this.runtime.startPagination?.();
+    } catch {
+      // The helper retains public HTML rooms and reports failed pagination.
+    }
+    let result: ProcessResult;
+    try {
+      result = await runProcess(helperPath, args, {
+        cwd: this.getHelperDirectory(), timeoutMs,
+        env: pagination ? { LIVEHUB_DOUYIN_PAGING_URL: pagination.url } : undefined,
+      });
+    } finally {
+      pagination?.close();
+    }
 
     try {
       return JSON.parse(result.stdout) as T;

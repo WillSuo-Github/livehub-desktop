@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -80,6 +79,9 @@ type allRoomsResponse struct {
 	FailedCategories     []categoryFailure `json:"failedCategories,omitempty"`
 	Partial              bool              `json:"partial"`
 	Source               string            `json:"source"`
+	Complete             bool              `json:"complete"`
+	CoverageNote         string            `json:"coverageNote"`
+	PagesFetched         int               `json:"pagesFetched"`
 }
 
 type rawCategory struct {
@@ -122,6 +124,7 @@ type rawRoom struct {
 type rawCategoryRoom struct {
 	Room      rawRoom `json:"room"`
 	TagName   string  `json:"tag_name"`
+	GameTag   string  `json:"game_tag"`
 	WebRID    string  `json:"web_rid"`
 	StreamSrc string  `json:"streamSrc"`
 	Cover     string  `json:"cover"`
@@ -136,12 +139,6 @@ type rawCategoryPage struct {
 	} `json:"roomsData"`
 	CategoryData []rawCategory `json:"categoryData"`
 	CategoryList []string      `json:"categoryList"`
-}
-
-type categoryResult struct {
-	Category categoryOutput
-	Rooms    []roomOutput
-	Error    error
 }
 
 // categoryTree separates leaf categories from overview partitions. Overview pages
@@ -170,7 +167,7 @@ func main() {
 	timeout := 30 * time.Second
 	switch os.Args[1] {
 	case "rooms-all":
-		timeout = 2 * time.Minute
+		timeout = 5 * time.Minute
 	case "featured":
 		timeout = time.Minute
 	}
@@ -244,6 +241,14 @@ func getFeaturedRooms(ctx context.Context, args []string) {
 		leavesByID[leaf.ID] = leaf
 	}
 	extraLeaves := make([]categoryOutput, 0)
+	// On a cold start there is no previous ranking. Include the navigation's
+	// first leaf categories so large game streams need not wait for a full sync.
+	if strings.TrimSpace(*extra) == "" {
+		extraLeaves = tree.Leaves
+		if len(extraLeaves) > 24 {
+			extraLeaves = extraLeaves[:24]
+		}
+	}
 	for _, id := range strings.Split(*extra, ",") {
 		if leaf, exists := leavesByID[strings.TrimSpace(id)]; exists {
 			extraLeaves = append(extraLeaves, leaf)
@@ -282,88 +287,7 @@ func collectRooms(
 	leafIDByName map[string]string,
 	source string,
 ) allRoomsResponse {
-	results := make(chan categoryResult, workers)
-	jobs := make(chan categoryOutput)
-	var waitGroup sync.WaitGroup
-
-	for i := 0; i < workers; i++ {
-		waitGroup.Add(1)
-		go func() {
-			defer waitGroup.Done()
-			for category := range jobs {
-				rooms, fetchErr := fetchRoomsByCategory(ctx, category, leafIDByName)
-				result := categoryResult{Category: category, Rooms: rooms, Error: fetchErr}
-				select {
-				case results <- result:
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-	}
-
-	go func() {
-		defer close(jobs)
-		for _, category := range categories {
-			select {
-			case jobs <- category:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	go func() {
-		waitGroup.Wait()
-		close(results)
-	}()
-
-	leafIDs := make(map[string]struct{}, len(leafIDByName))
-	for _, leafID := range leafIDByName {
-		leafIDs[leafID] = struct{}{}
-	}
-	roomsByID := make(map[string]roomOutput)
-	failedCategories := make([]categoryFailure, 0)
-	successfulCategories := 0
-	for result := range results {
-		if result.Error != nil {
-			failedCategories = append(failedCategories, categoryFailure{
-				ID:    result.Category.ID,
-				Name:  result.Category.Name,
-				Error: result.Error.Error(),
-			})
-			continue
-		}
-		successfulCategories++
-		for _, room := range result.Rooms {
-			current, exists := roomsByID[room.ID]
-			if !exists {
-				roomsByID[room.ID] = room
-				continue
-			}
-			roomsByID[room.ID] = mergeRoomCopies(current, room, leafIDs)
-		}
-	}
-
-	rooms := make([]roomOutput, 0, len(roomsByID))
-	for _, room := range roomsByID {
-		rooms = append(rooms, room)
-	}
-	sort.SliceStable(rooms, func(i, j int) bool {
-		if rooms[i].Viewers == rooms[j].Viewers {
-			return rooms[i].Title < rooms[j].Title
-		}
-		return rooms[i].Viewers > rooms[j].Viewers
-	})
-
-	partial := len(failedCategories) > 0 || ctx.Err() != nil
-	return allRoomsResponse{
-		Rooms:                rooms,
-		CategoryCount:        len(categories),
-		SuccessfulCategories: successfulCategories,
-		FailedCategories:     failedCategories,
-		Partial:              partial,
-		Source:               source,
-	}
+	return collectDirectory(ctx, categories, workers, leafIDByName, source, fetchDirectoryPage)
 }
 
 // mergeRoomCopies keeps the freshest-looking audience value and the most specific
@@ -477,7 +401,11 @@ func mapRoom(raw rawCategoryRoom, category categoryOutput, leafIDByName map[stri
 	// Overview pages mix rooms from many leaves; tag_name names the room's own leaf.
 	categoryName := category.Name
 	categoryID := category.ID
-	if tagName := strings.TrimSpace(raw.TagName); tagName != "" && tagName != category.Name {
+	tagName := strings.TrimSpace(raw.TagName)
+	if tagName == "" {
+		tagName = strings.TrimSpace(raw.GameTag)
+	}
+	if tagName != "" && tagName != category.Name {
 		categoryName = tagName
 		if leafID, exists := leafIDByName[tagName]; exists {
 			categoryID = leafID

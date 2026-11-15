@@ -14,6 +14,7 @@ import { vupiloPlayerId } from "../shared/vupilo";
 import { favoriteCollectionKey, favoritesBackupKey, favoritesStorageKey, getFavoriteRooms, isFavoriteRoom, parseFavoriteCollection, toggleFavoriteCollection, updateFavoriteCollection, type FavoriteCollection } from "../shared/favorites";
 import { matchesRoomQuery, mergeSearchRooms } from "../shared/room-search";
 import { useRoomSearch } from "./use-room-search";
+import { fullSyncToast } from "../shared/sync-status";
 
 type PlatformFilter = "all" | PlatformId;
 type ViewId = "rooms" | "favorites" | "settings";
@@ -202,7 +203,7 @@ function App() {
       setAppInfo(nextAppInfo);
       setSelectedRoom((current) => current ? nextRooms.find((room) => room.id === current.id) ?? current : null);
       if (announce) {
-        setToast("热门房间已更新，完整列表会在后台继续同步。");
+        setToast("热门房间已更新，后台同步会继续扩大收录范围。");
       }
     } catch {
       setError("直播列表加载失败，请重启应用试试。");
@@ -525,9 +526,9 @@ function App() {
   const danmakuFilterSummary = blockedDanmakuKinds.length === 0
     ? "播放器会收到全部弹幕，包含进场、点赞和礼物提示。"
     : `已屏蔽 ${blockedDanmakuKinds.map((kind) => danmakuKindLabels[kind]).join("、")}，播放器只收到勾选的类型。`;
-  const hasPlatformIssue = integrationStatuses.some((status) => status.state === "error" || status.partial);
+  const hasPlatformIssue = integrationStatuses.some((status) => status.state === "error" || status.partial || status.complete === false);
   const allPlatformsConnected = integrationStatuses.length === Object.keys(platformMeta).length
-    && integrationStatuses.every((status) => status.state === "connected" && !status.partial && status.phase !== "error");
+    && integrationStatuses.every((status) => status.state === "connected" && !status.partial && status.complete !== false && status.phase !== "error");
   const platformSummary = appInfo
     ? appInfo.platforms.map((platform) => `${platformMeta[platform].label} ${appInfo[platform].roomCount ?? 0}`).join(" · ")
     : "正在连接四个平台…";
@@ -535,7 +536,7 @@ function App() {
     ? `${syncingPlatformCount} 个平台后台同步中`
     : allPlatformsConnected
       ? "四个平台实时数据"
-      : `${connectedPlatformCount}/4 个平台已连接 · 显示平台原始数据`;
+      : `${connectedPlatformCount}/4 个平台已连接 · 部分目录未完整`;
   const platformScopedRoomCount = rooms.filter((room) =>
     selectedPlatform === "all" || selectedPlatform === room.platform,
   ).length;
@@ -726,7 +727,7 @@ function App() {
       setRooms(nextRooms);
       setAppInfo(nextAppInfo);
       setSelectedRoom((current) => (current ? nextRooms.find((room) => room.id === current.id) ?? null : null));
-      setToast(`全量同步完成，共获取 ${nextRooms.length.toLocaleString("zh-CN")} 个直播间。`);
+      setToast(fullSyncToast(nextAppInfo, nextRooms.length));
     } catch {
       setToast("全量同步失败，请稍后重试。");
     } finally {
@@ -982,7 +983,9 @@ function App() {
               <div className="setting-row">
                 <div>
                   <strong>平台解析器</strong>
-                  <span>抖音、斗鱼、虎牙、哔哩哔哩。</span>
+                  {appInfo ? appInfo.platforms.map((platform) => (
+                    <span key={platform}>{platformMeta[platform].label}：{appInfo[platform].message}</span>
+                  )) : <span>正在连接平台…</span>}
                 </div>
                 <span className="setting-status">已接入列表</span>
               </div>
@@ -990,8 +993,8 @@ function App() {
                 <div>
                   <strong>后台全量同步</strong>
                   <span>{backgroundFullSyncEnabled
-                    ? "热门房间先显示，完整列表启动后同步，并每小时自动刷新。"
-                    : "已暂停完整列表同步；热门房间仍会继续刷新。"}</span>
+                    ? "热门房间先显示，启动后扩大收录范围，并每小时自动刷新；覆盖范围见平台状态。"
+                    : "已暂停后台目录同步；热门房间仍会继续刷新。"}</span>
                 </div>
                 <span className={`setting-status ${backgroundFullSyncEnabled ? "" : "pending"}`}>
                   {backgroundFullSyncEnabled ? "运行中" : "已暂停"}
@@ -1078,7 +1081,7 @@ function App() {
                     className="sync-full-button"
                     onClick={() => void handleFullSync()}
                     disabled={loading || isFullSyncRunning}
-                    title="从四个平台抓取全量分区和直播间"
+                    title="遍历各平台公开目录，覆盖范围和未完成项目见平台状态"
                   >
                     <span className={isFullSyncRunning ? "sync-spin" : ""}>⟳</span>
                     {isFullSyncRunning ? "全量同步中…" : "全量同步"}
@@ -1233,6 +1236,17 @@ function App() {
             </div>
 
             <div className="content-grid">
+              {activeView === "rooms" && appInfo && (
+                <div className="directory-coverage" role="status" aria-live="polite">
+                  {appInfo.platforms.filter((platform) => {
+                    const status = appInfo[platform];
+                    return (selectedPlatform === "all" || selectedPlatform === platform)
+                      && (status.partial || status.complete === false || status.state === "error");
+                  }).map((platform) => (
+                    <p key={platform}>{platformMeta[platform].label}：{appInfo[platform].message}</p>
+                  ))}
+                </div>
+              )}
               {activeView === "rooms" && query.trim() && (
                 <div className="search-status" role="status" aria-live="polite">
                   <span>{selectedPlatform === "douyin" ? "抖音仅搜索已同步的直播间。" : search.loading ? "正在搜索主播，包含未开播的直播间…" : "已查询平台主播，包含未开播的直播间。"}</span>

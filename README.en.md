@@ -46,7 +46,7 @@ The source is cross-platform. The GitHub Actions release workflow builds macOS a
 - Featured rooms appear first while full platform aggregation continues in the background.
 - Featured-room refreshes five minutes after each completed refresh.
 - Featured refreshes read each platform's site-wide popular lists, Douyin's category overview pages, and the hottest categories from the last full sync. They update those rooms and keep the rest of the synchronized list.
-- Full synchronization on startup by default, followed by another sync one hour after each completed cycle.
+- Public-directory synchronization on startup, followed by another sync one hour after each cycle. Douyin follows the API's pagination cursors; its curated category index is not the entire platform. Blocked, timed-out or stalled pages retain fetched rooms and report incomplete coverage.
 - A background full-sync setting that can be paused while featured-room refreshes and manual sync remain available.
 - No demo rooms are mixed into production results.
 - Direct-stream resolution at play time for HLS and FLV playback URLs.
@@ -199,7 +199,7 @@ LiveHub is licensed under the GNU General Public License v3.0 only. See [LICENSE
 
 ## Roadmap
 
-1. Add cursor-based Douyin coverage where the public endpoint becomes stable enough to use.
+1. Expand Douyin category discovery and improve coverage diagnostics and recovery from upstream request restrictions.
 2. Add provider diagnostics and direct-stream quality selection.
 3. Add packaged Linux artifacts to the GitHub release workflow.
 4. Add player process lifecycle controls and richer playback error details.

@@ -85,6 +85,15 @@ jobs:
       - name: Run type checks
         run: npm run typecheck
 
+      - name: Set up Go for helper tests
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: native/douyin-helper/go.mod
+
+      - name: Run regression tests
+        run: npm test
+
   package:
     name: Package ${{ matrix.name }}
     needs: [prepare, verify]

@@ -49,6 +49,10 @@ use the explicit `http://` address for this local server.
 - Start with each platform's existing featured directory. These are not a
   guarantee of every live room on the platform. For example, Douyu's directory
   may expose thousands of rooms while Douyin's featured index is much smaller.
+  The desktop app uses an isolated, sandboxed Douyin website session for cursor
+  pagination. This headless Node server has no browser session; when Douyin
+  blocks its public API it keeps the HTML sample and marks coverage as partial.
+  Neither the category index nor a successful request proves site-wide coverage.
 - Featured directories refresh every five minutes. Concurrent catalog, search
   and metadata requests share directory loads. Search filters the live index;
   it does not call a platform-wide search API.

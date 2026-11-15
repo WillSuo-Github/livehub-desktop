@@ -4,6 +4,7 @@ import { DouyuAdapter } from "./douyu-adapter";
 import { HuyaAdapter } from "./huya-adapter";
 import { mapWithConcurrency } from "./platform-http";
 import type { PlatformRoomData } from "./platform-adapter";
+import { roomSyncMessage } from "../shared/sync-status";
 import type {
   AppInfo,
   LiveRoom,
@@ -261,7 +262,7 @@ export class PlatformService {
       state: currentRooms.length > 0 ? "connected" : "checking",
       message: mode === "featured"
         ? `正在获取${platformLabels[platform]}热门房间…`
-        : `正在后台同步${platformLabels[platform]}完整列表…`,
+        : platform === "douyin" ? "正在遍历抖音公开分类分页…" : `正在后台同步${platformLabels[platform]}完整列表…`,
       roomCount: currentRooms.length || undefined,
       phase: mode === "featured" ? "featured" : "syncing",
       progress: mode === "featured" ? undefined : 0,
@@ -280,27 +281,25 @@ export class PlatformService {
         ? mapDouyinRoom(room as DouyinRoomData)
         : mapPlatformRoom(room, platform));
       const failedCategoryCount = result.failedCategories?.length ?? 0;
-      const coverage = result.partial
-        ? `，${failedCategoryCount} 个分类失败`
-        : "，分类全部成功";
       // Quick refreshes only sample the hottest rooms, so they update the cached list instead of replacing it.
       const nextRooms = this.reconcileRooms(platform, rooms, {
-        replace: !result.partial && (mode === "full" || result.complete === true),
+        replace: !result.partial && (result.complete === true || (mode === "full" && result.complete !== false)),
         confirmedAbove: result.confirmedAbove,
       });
 
       this.statuses[platform] = {
         state: "connected",
-        message: mode === "featured"
-          ? `热门已刷新 ${rooms.length} 个，当前共 ${nextRooms.length} 个房间${coverage}`
-          : `完整同步 ${nextRooms.length} 个真实房间${coverage}`,
+        message: roomSyncMessage(mode, rooms.length, nextRooms.length, result),
         roomCount: nextRooms.length,
         categoryCount: result.categoryCount,
         successfulCategories: result.successfulCategories,
         failedCategoryCount,
         partial: result.partial,
+        complete: result.complete,
+        coverageNote: "coverageNote" in result ? result.coverageNote : undefined,
+        pagesFetched: "pagesFetched" in result ? result.pagesFetched : undefined,
         phase: mode === "featured" ? "featured" : "ready",
-        progress: mode === "featured" ? undefined : 1,
+        progress: mode === "featured" || result.partial ? undefined : 1,
         lastUpdatedAt: new Date().toISOString(),
         source: result.source,
       };

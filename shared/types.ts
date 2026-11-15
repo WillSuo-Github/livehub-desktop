@@ -75,6 +75,9 @@ export interface PlatformIntegrationStatus {
   successfulCategories?: number;
   failedCategoryCount?: number;
   partial?: boolean;
+  complete?: boolean;
+  coverageNote?: string;
+  pagesFetched?: number;
   phase?: "featured" | "syncing" | "ready" | "error";
   progress?: number;
   lastUpdatedAt?: string;
