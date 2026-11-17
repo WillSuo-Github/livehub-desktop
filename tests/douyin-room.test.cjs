@@ -4,6 +4,7 @@ const {
   douyinWebRoomId,
   parseDouyinPlayback,
   resolveDouyinPlayback,
+  parseDouyinFavorite,
 } = require("../dist-electron/electron/douyin-room.js");
 const { browserUserAgent } = require("../dist-electron/electron/platform-http.js");
 
@@ -167,4 +168,37 @@ test("missing ttwid rejects before fetching a room", async () => {
   http.fetchHome = async () => ({ response: { headers: new Headers() } });
   await assert.rejects(resolveDouyinPlayback(room, http), /ttwid 获取失败/);
   assert.equal(http.calls.length, 0);
+});
+
+test("favorite status accepts ended sessions without requiring stream URLs and follows new sessions", () => {
+  const payload = { status_code: 0, data: {
+    enter_room_id: '123', user: { nickname: 'Anchor' },
+    data: [{ id_str: '123', status: 4, title: 'Last stream', user_count: 123 }],
+  } };
+  const ended = parseDouyinFavorite(payload, '456');
+  assert.equal(ended.id, 'douyin-123');
+  assert.equal(ended.status, 'offline');
+  assert.equal(ended.viewers, 0);
+  assert.equal(ended.playback, undefined);
+  assert.equal(ended.webUrl, 'https://live.douyin.com/456');
+  payload.data.enter_room_id = '789';
+  payload.data.data[0] = { id_str: '789', status: 2, user_count: 25 };
+  const live = parseDouyinFavorite(payload, '456');
+  assert.equal(live.id, 'douyin-789');
+  assert.equal(live.status, 'live');
+  assert.equal(live.viewers, 25);
+});
+
+test("favorite lookup rejects missing, unknown, and mismatched room state", () => {
+  const valid = { status_code: 0, data: { enter_room_id: '123', user: { nickname: 'Anchor', web_rid: '456' }, data: [{ id_str: '123', status: 2 }] } };
+  assert.equal(parseDouyinFavorite(valid, '456').status, 'live');
+  for (const alter of [
+    p => { p.status_code = 1; }, p => { p.data.data = []; },
+    p => { p.data.data[0].status = 3; }, p => { p.data.data[0].status = undefined; },
+    p => { p.data.enter_room_id = '999'; }, p => { p.data.user.web_rid = '999'; },
+    p => { p.data.data[0].id_str = 'invalid'; }, p => { p.data.user.nickname = ''; },
+  ]) {
+    const p = structuredClone(valid); alter(p);
+    assert.throws(() => parseDouyinFavorite(p, '456'));
+  }
 });

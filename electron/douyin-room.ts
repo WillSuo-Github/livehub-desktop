@@ -46,6 +46,11 @@ export async function resolveDouyinPlayback(
   http: DouyinPlaybackHttp = defaultHttp,
 ): Promise<PlaybackUrls> {
   const webRid = douyinWebRoomId(room);
+  return parseDouyinPlayback(await fetchDouyinRoom(webRid, http), webRid);
+}
+
+export async function fetchDouyinRoom(webRid: string, http: DouyinPlaybackHttp = defaultHttp): Promise<unknown> {
+  if (!/^\d{1,20}$/.test(webRid)) throw new Error("抖音房间号无效");
   const home = await http.fetchHome(`${douyinOrigin}/`, douyinHeaders);
   const ttwid = home.response.headers.get("set-cookie")
     ?.match(/(?:^|[;,]\s*)ttwid=([^;\s,]+)/)?.[1];
@@ -71,7 +76,7 @@ export async function resolveDouyinPlayback(
     tz_name: "Asia/Shanghai",
     web_rid: webRid,
   });
-  const response = await http.fetchRoom(
+  return http.fetchRoom(
     `${douyinOrigin}/webcast/room/web/enter/?${params.toString()}`,
     {
       ...douyinHeaders,
@@ -79,7 +84,38 @@ export async function resolveDouyinPlayback(
       Cookie: `ttwid=${ttwid}`,
     },
   );
-  return parseDouyinPlayback(response, webRid);
+}
+
+// Status lookup must work without stream URLs, including after a session ends.
+export function parseDouyinFavorite(response: unknown, webRid: string): LiveRoom {
+  if (!/^\d{1,20}$/.test(webRid)) throw new Error("Invalid Douyin web room ID");
+  const payload = asRecord(response);
+  const data = asRecord(payload.data);
+  const rooms = data.data;
+  const room = asRecord(Array.isArray(rooms) ? rooms[0] : undefined);
+  const user = asRecord(data.user);
+  const owner = asRecord(room.owner);
+  const sessionId = room.id_str;
+  if (payload.status_code !== 0 || ![2, 4].includes(room.status as number)
+    || typeof sessionId !== "string" || !/^\d{1,20}$/.test(sessionId)
+    || (data.enter_room_id !== undefined && String(data.enter_room_id) !== sessionId)
+    || [user.web_rid, owner.web_rid].some((id) => id !== undefined && String(id) !== webRid)) {
+    throw new Error("Invalid Douyin room state or identity");
+  }
+  const anchor = typeof user.nickname === "string" ? user.nickname : owner.nickname;
+  if (typeof anchor !== "string" || !anchor.trim()) throw new Error("Missing Douyin anchor");
+  const coverUrls = asRecord(room.cover).url_list;
+  const coverUrl = Array.isArray(coverUrls) ? coverUrls.find((url) => typeof url === "string" && /^https?:\/\//.test(url)) : undefined;
+  const live = room.status === 2;
+  const viewers = Number(room.user_count_str ?? room.user_count);
+  return {
+    id: `douyin-${sessionId}`, platform: "douyin", anchor,
+    title: typeof room.title === "string" && room.title ? room.title : `${anchor}的直播间`,
+    category: "直播", tags: [], cover: coverUrl ? `url(${JSON.stringify(coverUrl)}) center center / cover no-repeat` : "",
+    status: live ? "live" : "offline", viewers: live && Number.isFinite(viewers) ? Math.max(0, viewers) : 0,
+    audienceMetric: "platform-online", viewerLabel: live && !Number.isFinite(viewers) ? "—" : undefined,
+    updatedAt: "刚刚", checkedAt: Date.now(), webUrl: `${douyinOrigin}/${webRid}`,
+  };
 }
 
 export function parseDouyinPlayback(response: unknown, webRid: string): PlaybackUrls {

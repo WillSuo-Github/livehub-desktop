@@ -29,6 +29,14 @@ export function updateFavoriteCollection(collection: FavoriteCollection, rooms: 
   return { ...collection, rooms: updated };
 }
 
+export const favoriteStatusMaxAgeMs = 10 * 60_000;
+
+export function expireFavoriteStatuses(collection: FavoriteCollection, now = Date.now()): FavoriteCollection {
+  return { ...collection, rooms: collection.rooms.map((room) => room.status !== "unknown"
+    && now - (room.checkedAt ?? 0) >= favoriteStatusMaxAgeMs
+    ? { ...room, status: "unknown", updatedAt: "状态已过期", playback: undefined } : room) };
+}
+
 export function toggleFavoriteCollection(collection: FavoriteCollection, room: LiveRoom): FavoriteCollection {
   const ids = toggleFavoriteRoom(room, collection.ids);
   return updateFavoriteCollection({ ...collection, ids }, [room]);

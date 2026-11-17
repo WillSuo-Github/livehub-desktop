@@ -102,3 +102,22 @@ test("favorite lookups keep failed identities separate and detect ending a broad
   await assert.rejects(service.refreshFavorites(['huya-688/../../../']));
   await assert.rejects(service.refreshFavorites(['douyin-123']));
 });
+
+test("favorite refresh includes stable Douyin keys and isolates API failures", async () => {
+  const calls = [];
+  const service = new RoomSearchService(undefined, {
+    fetchHome: async () => ({ response: { headers: new Headers({ 'set-cookie': 'ttwid=test-cookie; Path=/' }) } }),
+    fetchRoom: async (url, headers) => {
+      const id = new URL(url).searchParams.get('web_rid');
+      calls.push(id);
+      assert.equal(headers.Cookie, 'ttwid=test-cookie');
+      if (id === '999') throw new Error('unavailable');
+      return { status_code: 0, data: { user: { nickname: 'Anchor' }, data: [{ id_str: '123', status: 4 }] } };
+    },
+  });
+  const result = await service.refreshFavorites(['douyin-web-456', 'douyin-web-456', 'douyin-web-999']);
+  assert.deepEqual(calls.sort(), ['456', '999']);
+  assert.equal(result.rooms[0].status, 'offline');
+  assert.equal(result.rooms[0].webUrl, 'https://live.douyin.com/456');
+  assert.deepEqual(result.failedIds, ['douyin-web-999']);
+});

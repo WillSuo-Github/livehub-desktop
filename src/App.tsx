@@ -11,7 +11,8 @@ import type {
 } from "../shared/types";
 import { danmakuKindLabels, danmakuKinds, defaultDanmakuKindFilter } from "../shared/danmaku";
 import { vupiloPlayerId } from "../shared/vupilo";
-import { favoriteCollectionKey, favoritesBackupKey, favoritesStorageKey, getFavoriteRooms, isFavoriteRoom, parseFavoriteCollection, toggleFavoriteCollection, updateFavoriteCollection, type FavoriteCollection } from "../shared/favorites";
+import { expireFavoriteStatuses, favoriteKey, favoriteCollectionKey, favoritesBackupKey, favoritesStorageKey, getFavoriteRooms, isFavoriteRoom, parseFavoriteCollection, toggleFavoriteCollection, updateFavoriteCollection, type FavoriteCollection } from "../shared/favorites";
+import { createFavoriteRefresher } from "../shared/favorite-refresh";
 import { matchesRoomQuery, mergeSearchRooms } from "../shared/room-search";
 import { useRoomSearch } from "./use-room-search";
 import { fullSyncToast } from "../shared/sync-status";
@@ -189,26 +190,37 @@ function App() {
   const [roomLayout, setRoomLayout] = useState<RoomLayout>("grid");
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [visibleRoomCount, setVisibleRoomCount] = useState(roomPageSize);
 
   const refreshRooms = async (announce = false): Promise<void> => {
     setLoading(true);
+    if (announce) setManualRefreshing(true);
     setError(null);
 
     try {
-      const nextRooms = await window.livehub.getRooms("all", "featured");
-      const nextAppInfo = await window.livehub.getAppInfo();
-      setRooms(nextRooms);
-      setAppInfo(nextAppInfo);
-      setSelectedRoom((current) => current ? nextRooms.find((room) => room.id === current.id) ?? current : null);
+      const [directory, favoriteResult] = await Promise.allSettled([
+        (async () => {
+          const nextRooms = await window.livehub.getRooms("all", "featured");
+          const nextAppInfo = await window.livehub.getAppInfo();
+          setRooms(nextRooms);
+          setAppInfo(nextAppInfo);
+        })(),
+        announce && favoritesReady ? refreshFavoriteRooms() : Promise.resolve(0),
+      ]);
+      if (directory.status === "rejected") setError("直播列表加载失败，请重试。");
       if (announce) {
-        setToast("热门房间已更新，后台同步会继续扩大收录范围。");
+        const failures = favoriteResult.status === "fulfilled" ? favoriteResult.value : -1;
+        setToast(failures < 0 ? "收藏状态更新未能保存，请检查磁盘空间。"
+          : failures > 0 ? `收藏已刷新，${failures} 个房间状态暂不可用，请稍后重试。`
+            : directory.status === "rejected" ? "收藏状态已更新，热门房间刷新失败，请重试。" : "热门房间和收藏状态已更新。");
       }
     } catch {
       setError("直播列表加载失败，请重启应用试试。");
     } finally {
       setLoading(false);
+      if (announce) setManualRefreshing(false);
     }
   };
 
@@ -360,13 +372,20 @@ function App() {
     return () => { active = false; };
   }, [favoriteLoad]);
 
-  const saveFavoriteCollection = (collection: FavoriteCollection): void => {
+  const saveFavoriteCollection = (value: FavoriteCollection): void => {
+    const collection = expireFavoriteStatuses(value);
     if (JSON.stringify(collection) === JSON.stringify(favoriteCollectionRef.current)) return;
     // IDs and room snapshots commit together, including when storage is full.
     localStorage.setItem(favoriteCollectionKey, JSON.stringify(collection));
     favoriteCollectionRef.current = collection;
     setFavoriteCollection(collection);
   };
+
+  const refreshFavoriteRooms = useMemo(() => createFavoriteRefresher({
+    read: () => favoriteCollectionRef.current,
+    save: saveFavoriteCollection,
+    request: (ids) => window.livehub.refreshFavoriteRooms(ids),
+  }), []);
 
   useEffect(() => {
     if (!favoritesReady) return;
@@ -381,35 +400,22 @@ function App() {
     let active = true;
     let timer: number | undefined;
     const refresh = async (): Promise<void> => {
-      const ids = favoriteCollectionRef.current.ids.filter((id) => /^(bilibili|douyu|huya)-\d{1,20}$/.test(id));
-      for (let offset = 0; offset < ids.length && active; offset += 100) {
-        const batch = ids.slice(offset, offset + 100);
-        try {
-          const result = await window.livehub.refreshFavoriteRooms(batch);
-          if (!active) return;
-          const current = favoriteCollectionRef.current;
-          const failed = new Set(result.failedIds);
-          const unavailable = current.rooms.filter((room) => failed.has(room.id)).map((room): LiveRoom => ({ ...room, status: "unknown", updatedAt: "状态暂不可用", checkedAt: Date.now() }));
-          saveFavoriteCollection(updateFavoriteCollection(current, [...result.rooms, ...unavailable]));
-        } catch {
-          if (!active) return;
-          // A failed lookup never removes a favorite or asserts that it is offline.
-          try {
-            const current = favoriteCollectionRef.current;
-            saveFavoriteCollection(updateFavoriteCollection(current, current.rooms.filter((room) => batch.includes(room.id)).map((room) => ({ ...room, status: "unknown", updatedAt: "状态暂不可用", checkedAt: Date.now() }))));
-          } catch { setToast("收藏资料更新未能保存，请检查磁盘空间。"); }
-        }
-      }
+      try { await refreshFavoriteRooms(); }
+      catch { if (active) setToast("收藏资料更新未能保存，请检查磁盘空间。"); }
       if (active) timer = window.setTimeout(() => void refresh(), 5 * 60_000);
     };
     void refresh();
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [favoritesReady, favoriteIdsKey]);
+    const expiryTimer = window.setInterval(() => {
+      try { saveFavoriteCollection(favoriteCollectionRef.current); }
+      catch { setToast("收藏资料更新未能保存，请检查磁盘空间。"); }
+    }, 30_000);
+    return () => { active = false; window.clearTimeout(timer); window.clearInterval(expiryTimer); };
+  }, [favoritesReady, favoriteIdsKey, refreshFavoriteRooms]);
 
   useEffect(() => {
     setSelectedRoom((current) => {
       if (!current) return null;
-      return [...rooms, ...favoriteCollection.rooms, ...search.rooms].filter((room) => room.id === current.id)
+      return [...rooms, ...favoriteCollection.rooms, ...search.rooms].filter((room) => favoriteKey(room) === favoriteKey(current))
         .reduce((latest, room) => (room.checkedAt ?? 0) >= (latest.checkedAt ?? 0) ? room : latest, current);
     });
   }, [rooms, favoriteCollection.rooms, search.pages]);
@@ -1074,8 +1080,8 @@ function App() {
                 </div>
                 <div className="section-heading-actions">
                   <span className="sync-note"><span className="demo-dot" /> {syncSummary}</span>
-                  <button className="refresh-button" onClick={() => void refreshRooms(true)} disabled={loading || isFullSyncRunning}>
-                    <span>↻</span> 刷新热门
+                  <button className="refresh-button" onClick={() => void refreshRooms(true)} disabled={loading || manualRefreshing || isFullSyncRunning} title="重新请求热门房间和所有收藏的直播状态">
+                    <span>↻</span> {manualRefreshing ? "刷新中…" : activeView === "favorites" ? "刷新收藏" : "刷新"}
                   </button>
                   <button
                     className="sync-full-button"

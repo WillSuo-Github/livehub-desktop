@@ -1,5 +1,6 @@
 import type { FavoriteRoomsRefresh, LiveRoom, PlatformId, RoomSearchPage, SearchPlatformId } from "../shared/types";
 import { browserUserAgent, mapWithConcurrency } from "./platform-http";
+import { fetchDouyinRoom, parseDouyinFavorite, type DouyinPlaybackHttp } from "./douyin-room";
 
 type JsonObject = Record<string, unknown>;
 const supportedPlatforms: SearchPlatformId[] = ["bilibili", "douyu", "huya"];
@@ -25,6 +26,7 @@ class PublicSearchHttp implements SearchHttp {
     const response = await fetch(url, {
       headers: { "User-Agent": browserUserAgent, Accept: "application/json, text/plain, */*", ...headers },
       signal: AbortSignal.timeout(12_000),
+      cache: "no-store",
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json();
@@ -51,7 +53,18 @@ class PublicSearchHttp implements SearchHttp {
 }
 
 export class RoomSearchService {
-  constructor(private readonly http: SearchHttp = new PublicSearchHttp()) {}
+  constructor(
+    private readonly http: SearchHttp = new PublicSearchHttp(),
+    private readonly douyinHttp: DouyinPlaybackHttp = {
+      fetchHome: async (url, headers) => {
+        const response = await fetch(url, { headers, signal: AbortSignal.timeout(12_000), cache: "no-store" });
+        await response.body?.cancel();
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return { response };
+      },
+      fetchRoom: (url, headers) => this.http.json(url, headers),
+    },
+  ) {}
 
   async search(query: string, platform: PlatformId | "all" = "all", page = 1): Promise<RoomSearchPage[]> {
     if (typeof query !== "string" || query.trim().length > 50 || !Number.isInteger(page) || page < 1 || page > 50
@@ -92,7 +105,7 @@ export class RoomSearchService {
 
   async refreshFavorites(ids: string[]): Promise<FavoriteRoomsRefresh> {
     if (!Array.isArray(ids) || ids.length > 100 || !ids.every((id) => typeof id === "string"
-      && /^(bilibili|douyu|huya)-\d{1,20}$/.test(id))) throw new Error("收藏房间参数无效。");
+      && /^(bilibili|douyu|huya|douyin-web)-\d{1,20}$/.test(id))) throw new Error("收藏房间参数无效。");
     const results = await mapWithConcurrency([...new Set(ids)], 3, async (id) => {
       try { return { id, room: await this.lookupRoom(id) }; } catch { return { id }; }
     });
@@ -100,6 +113,10 @@ export class RoomSearchService {
   }
 
   private async lookupRoom(id: string): Promise<LiveRoom> {
+    if (id.startsWith("douyin-web-")) {
+      const webRid = id.slice("douyin-web-".length);
+      return parseDouyinFavorite(await fetchDouyinRoom(webRid, this.douyinHttp), webRid);
+    }
     const [platform, roomId] = id.split("-") as [SearchPlatformId, string];
     const headers = { Referer: origins[platform] };
     if (platform === "bilibili") {
