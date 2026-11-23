@@ -52,6 +52,16 @@ const formatViewers = (viewers: number): string => {
 
 const displayViewers = (room: LiveRoom): string => room.viewerLabel ?? formatViewers(room.viewers);
 const roomStatusLabel = (room: LiveRoom): string => room.status === "live" ? "直播中" : room.status === "offline" ? "未开播" : "状态待确认";
+const roomStatusClass = (room: LiveRoom): string =>
+  room.status === "live" ? "is-live" : room.status === "unknown" ? "not-live status-unknown" : "not-live";
+const nonLiveSectionLabel = (roomsToLabel: LiveRoom[]): string => {
+  const hasOffline = roomsToLabel.some((room) => room.status === "offline");
+  const hasUnknown = roomsToLabel.some((room) => room.status === "unknown");
+  if (hasOffline && hasUnknown) {
+    return "未开播 · 待确认";
+  }
+  return hasUnknown ? "状态待确认" : "未开播";
+};
 const audienceValueLabel = (room: LiveRoom): string => {
   if (room.audienceMetric === "heat") {
     return "人气";
@@ -508,6 +518,23 @@ function App() {
   const effectiveSortMode: RoomSortMode = sortMode === "online" && canSortByOnline ? "online" : "popularity";
   const sortedRooms = useMemo(() => activeView === "rooms" && query.trim() ? filteredRooms : sortRoomsForDisplay(filteredRooms, effectiveSortMode), [filteredRooms, effectiveSortMode, activeView, query]);
   const visibleRooms = useMemo(() => sortedRooms.slice(0, visibleRoomCount), [sortedRooms, visibleRoomCount]);
+  const favoriteLiveTotal = useMemo(
+    () => activeView === "favorites" ? sortedRooms.filter((room) => room.status === "live").length : 0,
+    [activeView, sortedRooms],
+  );
+  const favoriteNonLiveRooms = useMemo(
+    () => activeView === "favorites" ? sortedRooms.filter((room) => room.status !== "live") : [],
+    [activeView, sortedRooms],
+  );
+  const shouldGroupFavoritesByStatus = activeView === "favorites" && favoriteLiveTotal > 0 && favoriteNonLiveRooms.length > 0;
+  const visibleLiveRooms = useMemo(
+    () => shouldGroupFavoritesByStatus ? visibleRooms.filter((room) => room.status === "live") : [],
+    [shouldGroupFavoritesByStatus, visibleRooms],
+  );
+  const visibleNonLiveRooms = useMemo(
+    () => shouldGroupFavoritesByStatus ? visibleRooms.filter((room) => room.status !== "live") : [],
+    [shouldGroupFavoritesByStatus, visibleRooms],
+  );
   const listLoading = loading && activeView === "rooms" && !query.trim();
   const listError = activeView === "rooms" && !query.trim() ? error : null;
 
@@ -795,6 +822,66 @@ function App() {
       setSelectedPlatform("all");
       setSelectedCategory(null);
     }
+  };
+
+  const renderRoomCard = (room: LiveRoom) => {
+    const meta = platformMeta[room.platform];
+    const isFavorite = isFavoriteRoom(room, favorites);
+    const isLive = room.status === "live";
+
+    return (
+      <article
+        className={`room-card ${isLive ? "room-live" : "room-not-live"} ${selectedRoom?.id === room.id ? "selected" : ""}`}
+        key={room.id}
+        onClick={() => setSelectedRoom(room)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            setSelectedRoom(room);
+          }
+        }}
+        tabIndex={0}
+      >
+        <div className="room-cover">
+          <div className="room-cover-media" style={{ background: room.cover }} aria-hidden="true" />
+          <div className="cover-topline">
+            <div className="cover-ident">
+              <span className={`live-pill ${roomStatusClass(room)}`}><span />{roomStatusLabel(room)}</span>
+            </div>
+            <button
+              className={`favorite-button ${isFavorite ? "favorite" : ""}`}
+              disabled={!favoritesReady}
+              title={!favoritesReady ? "正在恢复收藏…" : undefined}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleFavorite(room);
+              }}
+              aria-label={isFavorite ? "取消收藏" : "收藏直播间"}
+            >
+              {isFavorite ? "★" : "☆"}
+            </button>
+          </div>
+          <div className="cover-bottomline">
+            <span className="cover-metric">{isLive ? `● ${displayViewers(room)} ${audienceValueLabel(room)}` : ""}</span>
+            <span className="cover-category">{room.category}</span>
+          </div>
+        </div>
+        <div className="room-card-body">
+          <div className="room-title-row">
+            <h3>{room.title}</h3>
+            <span className="room-more">···</span>
+          </div>
+          <div className="room-anchor">
+            <span className="anchor-avatar" style={{ background: meta.accent }}>{room.anchor.slice(0, 1)}</span>
+            <span className="anchor-name">{room.anchor}</span>
+            <span className="platform-name">{meta.label}</span>
+          </div>
+          <div className="tag-row">
+            {room.tags.map((tag) => <span key={tag}>#{tag}</span>)}
+            <span className="updated-at">{room.updatedAt}</span>
+          </div>
+        </div>
+      </article>
+    );
   };
 
   return (
@@ -1270,64 +1357,32 @@ function App() {
                     <span>{activeView === "favorites" && !query.trim() ? "在直播大厅搜索主播，未开播也能收藏。" : "换个平台或搜索词试试看吧。"}</span>
                   </div>
                 )}
-                {!listLoading && !listError && visibleRooms.map((room) => {
-                  const meta = platformMeta[room.platform];
-                  const isFavorite = isFavoriteRoom(room, favorites);
-
-                    return (
-                      <article
-                        className={`room-card ${room.status !== "live" ? "room-not-live" : ""} ${selectedRoom?.id === room.id ? "selected" : ""}`}
-                        key={room.id}
-                        onClick={() => setSelectedRoom(room)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            setSelectedRoom(room);
-                          }
-                        }}
-                        tabIndex={0}
-                      >
-                        <div className="room-cover" style={{ background: room.cover }}>
-                          <div className="cover-topline">
-                            <div className="cover-ident">
-                              <span className={`live-pill ${room.status !== "live" ? "not-live" : ""}`}><span />{roomStatusLabel(room)}</span>
-                              <span className="platform-badge" style={{ color: meta.accent }}>{meta.label}</span>
-                            </div>
-                            <button
-                              className={`favorite-button ${isFavorite ? "favorite" : ""}`}
-                              disabled={!favoritesReady}
-                              title={!favoritesReady ? "正在恢复收藏…" : undefined}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                toggleFavorite(room);
-                              }}
-                              aria-label={isFavorite ? "取消收藏" : "收藏直播间"}
-                            >
-                              {isFavorite ? "★" : "☆"}
-                            </button>
-                          </div>
-                          <div className="cover-bottomline">
-                            <span>{room.status === "live" ? `● ${displayViewers(room)} ${audienceValueLabel(room)}` : roomStatusLabel(room)}</span>
-                            <span>{room.category}</span>
-                          </div>
+                {!listLoading && !listError && (shouldGroupFavoritesByStatus ? (
+                  <>
+                    {visibleLiveRooms.length > 0 && (
+                      <>
+                        <div className="room-section-header live">
+                          <span className="room-section-dot" aria-hidden="true" />
+                          <span>正在直播</span>
+                          <span className="room-section-count">{favoriteLiveTotal}</span>
+                          <span className="room-section-rule" aria-hidden="true" />
                         </div>
-                        <div className="room-card-body">
-                          <div className="room-title-row">
-                            <h3>{room.title}</h3>
-                            <span className="room-more">···</span>
-                          </div>
-                          <div className="room-anchor">
-                            <span className="anchor-avatar" style={{ background: meta.accent }}>{room.anchor.slice(0, 1)}</span>
-                            <span className="anchor-name">{room.anchor}</span>
-                            <span className="platform-name">{meta.label}</span>
-                          </div>
-                          <div className="tag-row">
-                            {room.tags.map((tag) => <span key={tag}>#{tag}</span>)}
-                            <span className="updated-at">{room.updatedAt}</span>
-                          </div>
+                        {visibleLiveRooms.map(renderRoomCard)}
+                      </>
+                    )}
+                    {visibleNonLiveRooms.length > 0 && (
+                      <>
+                        <div className="room-section-header offline">
+                          <span className="room-section-dot" aria-hidden="true" />
+                          <span>{nonLiveSectionLabel(favoriteNonLiveRooms)}</span>
+                          <span className="room-section-count">{favoriteNonLiveRooms.length}</span>
+                          <span className="room-section-rule" aria-hidden="true" />
                         </div>
-                      </article>
-                    );
-                  })}
+                        {visibleNonLiveRooms.map(renderRoomCard)}
+                      </>
+                    )}
+                  </>
+                ) : visibleRooms.map(renderRoomCard))}
                   {!listLoading && !listError && visibleRooms.length < filteredRooms.length && (
                     <button
                       className="load-more-button"
@@ -1372,7 +1427,7 @@ function App() {
                         <span className="preview-glow" />
                         <span className="preview-platform">{platformMeta[selectedRoom.platform].short}</span>
                         <span className="preview-play">{selectedRoom.status === "live" ? "▶" : "☾"}</span>
-                        <span className={`preview-status ${selectedRoom.status !== "live" ? "not-live" : ""}`}><span />{roomStatusLabel(selectedRoom)}</span>
+                        <span className={`preview-status ${roomStatusClass(selectedRoom)}`}><span />{roomStatusLabel(selectedRoom)}</span>
                       </div>
                       <div className="detail-content">
                         <div className="detail-title-row">
