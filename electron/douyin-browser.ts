@@ -1,18 +1,26 @@
-import { app, BrowserWindow, session } from "electron";
+import { app, BrowserWindow, session, type Session } from "electron";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+
+let directorySession: Session | undefined;
+
+function getDirectorySession(): Session {
+  if (!directorySession) {
+    // Electron retains each partition until exit, even after its windows close.
+    directorySession = session.fromPartition("douyin-directory", { cache: false });
+    directorySession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+    directorySession.on("will-download", (event) => event.preventDefault());
+  }
+  return directorySession;
+}
 
 // The public directory API relies on the website's own request middleware.
 // Keep that remote content sandboxed, without access to LiveHub's preload or IPC.
 export async function startDouyinBrowser(): Promise<{ url: string; close(): void }> {
-  const partition = `douyin-directory-${randomUUID()}`;
-  const isolatedSession = session.fromPartition(partition);
-  isolatedSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  isolatedSession.on("will-download", (event) => event.preventDefault());
   const window = new BrowserWindow({
     show: false,
     webPreferences: {
-      partition, sandbox: true, contextIsolation: true, nodeIntegration: false,
+      session: getDirectorySession(), sandbox: true, contextIsolation: true, nodeIntegration: false,
       backgroundThrottling: false,
     },
   });
@@ -62,10 +70,9 @@ export async function startDouyinBrowser(): Promise<{ url: string; close(): void
   });
   const close = (): void => {
     app.removeListener("before-quit", close);
-    server.closeAllConnections();
     server.close();
+    server.closeAllConnections();
     if (!window.isDestroyed()) window.destroy();
-    void isolatedSession.closeAllConnections();
   };
   app.once("before-quit", close);
   let timer: ReturnType<typeof setTimeout> | undefined;
